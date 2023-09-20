@@ -198,6 +198,33 @@ func (j JWTAuthMethod) validateJwtToken() bool {
 	return token.Valid
 }
 
+type Api struct {
+	BaseURL       string `json:"baseURL"`
+	ApplicationID string `json:"applicationID"`
+	ClientID      string `json:"clientID"`
+	SharedKey     string `json:"sharedKey"`
+}
+
+func (a Api) Jwt() string {
+	now := time.Now()
+	jwtExpiresAt := now.Add(time.Second * 60).Unix()
+	jwtIssueAt := now.Unix()
+
+	claims := claimsWithMultiAudSupport{
+		Scopes,
+		jwt.StandardClaims{
+			Issuer:    a.ClientID,
+			Subject:   a.ApplicationID,
+			IssuedAt:  jwtIssueAt,
+			ExpiresAt: jwtExpiresAt,
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, _ := token.SignedString([]byte(a.SharedKey))
+	return fmt.Sprintf("Bearer %s", tokenString)
+}
+
 func (j JWTAuthMethod) getJWTToken() string {
 	now := time.Now()
 	ttl := j.getTTL()

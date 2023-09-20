@@ -192,6 +192,7 @@ type CancelOrderPayload struct {
 
 // ReplaceOrderPayload method optional payload
 type ReplaceOrderPayload struct {
+	Api        Api                    `json:"-"`
 	Action     string                 `json:"action"`
 	Parameters ReplaceOrderParameters `json:"parameters,omitempty"`
 }
@@ -836,14 +837,33 @@ func (h HTTPApi) GetActiveOrdersV2() (*OrdersV2, error) {
 }
 
 // GetActiveOrdersV3 return the list of active trading orders
-func (h HTTPApi) GetActiveOrdersV3() (*OrdersV3, error) {
-	m := NewOrdersV3()
-	err := h.get(m, requestData{
-		action:   activeOrdersAction,
-		version:  APIv3,
-		category: TRADEAPICategory,
-	})
-	return m, err
+func (h HTTPApi) GetActiveOrdersV3(a Api) (*OrdersV3, error) {
+
+	var result *OrdersV3
+	var errRes []ErrorResponse
+
+	resp, err := resty.New().R().
+		SetResult(&result).
+		SetError(&errRes).
+		SetHeader("Authorization", a.Jwt()).
+		Get(fmt.Sprintf("%s/trade/3.0/orders/active", a.BaseURL))
+
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode() >= http.StatusInternalServerError {
+		return nil, fmt.Errorf("internal server error")
+	}
+
+	if resp.IsError() {
+		if len(errRes) == 0 {
+			return nil, fmt.Errorf("error: %s", string(resp.Body()))
+		}
+		return nil, errRes[0]
+	}
+
+	return result, nil
 }
 
 // PlaceOrderV1 place new trading OrderV1
@@ -881,8 +901,8 @@ func (h HTTPApi) PlaceOrderV3(req *OrderSentTypeV3) ([]OrderSentTypeV3Response, 
 		SetResult(&result).
 		SetError(&errRes).
 		SetBody(req).
-		SetHeader("Authorization", fmt.Sprintf("Bearer %s", h.Auth.JWT.getJWTToken())).
-		Post(fmt.Sprintf("%s/trade/3.0/orders", h.baseAPIURL))
+		SetHeader("Authorization", req.Api.Jwt()).
+		Post(fmt.Sprintf("%s/trade/3.0/orders", req.Api.BaseURL))
 
 	if err != nil {
 		return nil, err
@@ -893,6 +913,9 @@ func (h HTTPApi) PlaceOrderV3(req *OrderSentTypeV3) ([]OrderSentTypeV3Response, 
 	}
 
 	if resp.IsError() {
+		if len(errRes) == 0 {
+			return nil, fmt.Errorf("error: %s", string(resp.Body()))
+		}
 		return nil, errRes[0]
 	}
 
@@ -952,8 +975,8 @@ func (h HTTPApi) ReplaceOrder(orderID string, req ReplaceOrderPayload) (*Replace
 		SetResult(&result).
 		SetError(&errRes).
 		SetBody(req).
-		SetHeader("Authorization", fmt.Sprintf("Bearer %s", h.Auth.JWT.getJWTToken())).
-		Post(fmt.Sprintf("%s/trade/3.0/orders/%s", h.baseAPIURL, orderID))
+		SetHeader("Authorization", req.Api.Jwt()).
+		Post(fmt.Sprintf("%s/trade/3.0/orders/%s", req.Api.BaseURL, orderID))
 
 	if err != nil {
 		return nil, err
@@ -964,6 +987,9 @@ func (h HTTPApi) ReplaceOrder(orderID string, req ReplaceOrderPayload) (*Replace
 	}
 
 	if resp.IsError() {
+		if len(errRes) == 0 {
+			return nil, fmt.Errorf("error: %s", string(resp.Body()))
+		}
 		return nil, errRes[0]
 	}
 

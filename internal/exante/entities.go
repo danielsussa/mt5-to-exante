@@ -482,6 +482,7 @@ type OrderSentTypeV2 struct {
 
 // OrderSentTypeV3 model
 type OrderSentTypeV3 struct {
+	Api            Api    `json:"-"`
 	AccountID      string `json:"accountId"`
 	Instrument     string `json:"instrument"`
 	Side           string `json:"side"`

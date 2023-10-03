@@ -9,16 +9,14 @@ import (
 )
 
 func main() {
-	exanteApi := httplib.NewAPI("https://api-demo.exante.eu",
-		"2.0",
-		"218cd7b4-2da4-4f4c-9f3c-9f47b0cdfc41",
-		"31c78477-c140-4014-be90-e6b24a52f199",
-		"Xw4B87A8NF0F02H9LZhGtrl5zL0Q6g5W",
-		120, "", "",
-	)
-
 	h := api{
-		exApi:    exanteApi,
+		exApi: httplib.NewAPI("https://api-demo.exante.eu",
+			"2.0",
+			"218cd7b4-2da4-4f4c-9f3c-9f47b0cdfc41",
+			"31c78477-c140-4014-be90-e6b24a52f199",
+			"Xw4B87A8NF0F02H9LZhGtrl5zL0Q6g5W",
+			120, "", "",
+		),
 		slackApi: slack.New("xoxb-5937889843297-5927731285988-rUJWhdHM5a3kf1ythfjKCflb", slack.OptionDebug(true)),
 	}
 
@@ -27,6 +25,8 @@ func main() {
 		fmt.Println("health")
 		return c.String(http.StatusOK, "ok")
 	})
+
+	e.GET("/exchanges", h.getExchanges)
 	e.GET("/accounts", h.getAccounts)
 	e.POST("/v3/orders", h.getOrders)
 	e.POST("/v3/orders/:orderID/place", h.placeOrder)
@@ -38,6 +38,17 @@ func main() {
 type api struct {
 	exApi    httplib.HTTPApi
 	slackApi *slack.Client
+}
+
+func (a api) getExchanges(c echo.Context) error {
+	accounts, err := a.exApi.GetSymbolV3("FOREX")
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, echo.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(http.StatusOK, accounts)
 }
 
 func (a api) getAccounts(c echo.Context) error {
@@ -54,14 +65,14 @@ func (a api) getAccounts(c echo.Context) error {
 type placeOrderRequest struct {
 	httplib.Api
 	//
-	SymbolID   string `json:"symbolID"`
-	Duration   string `json:"duration"`
-	OrderType  string `json:"orderType"`
-	Quantity   string `json:"quantity"`
-	Side       string `json:"side"`
-	Instrument string `json:"instrument"`
-	AccountId  string `json:"accountId"`
-	LimitPrice string `json:"limitPrice"`
+	SymbolID   string  `json:"symbolID"`
+	Duration   string  `json:"duration"`
+	OrderType  string  `json:"orderType"`
+	Quantity   float64 `json:"quantity"`
+	Side       string  `json:"side"`
+	Instrument string  `json:"instrument"`
+	AccountId  string  `json:"accountId"`
+	LimitPrice float64 `json:"limitPrice"`
 }
 
 func (a api) placeOrder(c echo.Context) error {
@@ -73,7 +84,7 @@ func (a api) placeOrder(c echo.Context) error {
 	}()
 
 	req := new(placeOrderRequest)
-	if err := c.Bind(req); err != nil {
+	if err = c.Bind(req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
@@ -99,9 +110,9 @@ func (a api) placeOrder(c echo.Context) error {
 		SymbolID:   req.SymbolID,
 		Duration:   req.Duration,
 		OrderType:  req.OrderType,
-		Quantity:   req.Quantity,
+		Quantity:   fmt.Sprintf("%.2f", req.Quantity),
 		Side:       req.Side,
-		LimitPrice: req.LimitPrice,
+		LimitPrice: fmt.Sprintf("%.2f", req.LimitPrice),
 		Instrument: req.Instrument,
 
 		AccountID: req.AccountId,
@@ -137,7 +148,7 @@ func (a api) cancelOrder(c echo.Context) error {
 		}
 	}()
 	req := new(cancelOrderRequest)
-	if err := c.Bind(req); err != nil {
+	if err = c.Bind(req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
@@ -158,8 +169,9 @@ func (a api) cancelOrder(c echo.Context) error {
 	}
 
 	if currOrder == nil {
+		err = fmt.Errorf("no active order found")
 		return c.JSON(http.StatusBadRequest, echo.Map{
-			"error": "no active order found",
+			"error": err.Error(),
 		})
 	}
 
@@ -193,7 +205,7 @@ func (a api) replaceOrder(c echo.Context) error {
 	}()
 
 	req := new(replaceOrderRequest)
-	if err := c.Bind(req); err != nil {
+	if err = c.Bind(req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
@@ -247,7 +259,7 @@ func (a api) getOrders(c echo.Context) error {
 	}()
 
 	req := new(cancelOrderRequest)
-	if err := c.Bind(req); err != nil {
+	if err = c.Bind(req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 

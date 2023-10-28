@@ -482,18 +482,17 @@ type OrderSentTypeV2 struct {
 
 // OrderSentTypeV3 model
 type OrderSentTypeV3 struct {
-	Api            Api    `json:"-"`
-	AccountID      string `json:"accountId"`
-	Instrument     string `json:"instrument"`
-	Side           string `json:"side"`
-	Quantity       string `json:"quantity"`
-	Duration       string `json:"duration"`
-	ClientTag      string `json:"clientTag,omitempty"`
-	OcoGroup       string `json:"ocoGroup,omitempty"`
-	LimitPrice     string `json:"limitPrice,omitempty"`
-	IfDoneParentID string `json:"ifDoneParentId,omitempty"`
-	OrderType      string `json:"orderType"`
-	TakeProfit     string `json:"takeProfit,omitempty"`
-	StopLoss       string `json:"stopLoss,omitempty"`
-	SymbolID       string `json:"symbolId"`
+	AccountID      string  `json:"accountId"`
+	Instrument     string  `json:"instrument"`
+	Side           string  `json:"side"`
+	Quantity       string  `json:"quantity"`
+	Duration       string  `json:"duration"`
+	ClientTag      string  `json:"clientTag,omitempty"`
+	OcoGroup       string  `json:"ocoGroup,omitempty"`
+	LimitPrice     string  `json:"limitPrice,omitempty"`
+	IfDoneParentID string  `json:"ifDoneParentId,omitempty"`
+	OrderType      string  `json:"orderType"`
+	TakeProfit     *string `json:"takeProfit,omitempty"`
+	StopLoss       *string `json:"stopLoss,omitempty"`
+	SymbolID       string  `json:"symbolId"`
 }

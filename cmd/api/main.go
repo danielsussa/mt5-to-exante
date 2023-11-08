@@ -11,12 +11,12 @@ import (
 
 func main() {
 	h := api{
-		exApi: httplib.Api{
-			BaseURL:       os.Getenv("BASE_URL"),
-			SharedKey:     os.Getenv("SHARED_KEY"),
-			ClientID:      os.Getenv("CLIENT_ID"),
-			ApplicationID: os.Getenv("APPLICATION_ID"),
-		},
+		exApi: httplib.NewApi(
+			os.Getenv("BASE_URL"),
+			os.Getenv("APPLICATION_ID"),
+			os.Getenv("CLIENT_ID"),
+			os.Getenv("SHARED_KEY"),
+		),
 		slackApi: slack.New("xoxb-5937889843297-5927731285988-rUJWhdHM5a3kf1ythfjKCflb", slack.OptionDebug(true)),
 	}
 

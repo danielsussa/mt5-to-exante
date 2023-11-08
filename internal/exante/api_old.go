@@ -185,9 +185,6 @@ type GetTicksByQuotesPayload GetOHLCOptionalPayload
 type GetTicksByTradesPayload GetTicksByQuotesPayload
 
 // CancelOrderPayload method optional payload
-type CancelOrderPayload struct {
-	Action string `json:"action"`
-}
 
 type ReplaceOrderParameters struct {
 	Quantity      string `json:"quantity,omitempty"`

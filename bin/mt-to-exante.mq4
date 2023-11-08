@@ -10,10 +10,7 @@
 
 //--- input parameters
 input string         sdkUrl="http://127.0.0.1:1323";
-input string         baseURL="https://api-demo.exante.eu";
-input string         applicationID="218cd7b4-2da4-4f4c-9f3c-9f47b0cdfc41";
-input string         clientID="31c78477-c140-4014-be90-e6b24a52f199";
-input string         sharedKey="Xw4B87A8NF0F02H9LZhGtrl5zL0Q6g5W";
+input string         accoundID="QJO2251.001";
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -69,16 +66,12 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
 
 
    CJAVal jv;
-   jv["baseURL"]=baseURL;
-   jv["applicationID"]=applicationID;
-   jv["clientID"]=clientID;
-   jv["sharedKey"]=sharedKey;
    jv["symbolID"]=trans_symbol;
    jv["instrument"]=trans_symbol;
    jv["limitPrice"]=price;
    jv["quantity"]=volume;
    jv["duration"]="day";
-   jv["accountId"]="OZK2252.001";
+   jv["accountId"]=accoundID;
 
    switch(lastOrderType)
       {
@@ -145,8 +138,6 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
 
    char res_data[];
    string res_headers=NULL;
-
-   Print("dadad "+trans.type);
 
    switch(trans.type)
      {

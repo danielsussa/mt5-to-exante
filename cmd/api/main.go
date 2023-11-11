@@ -28,9 +28,10 @@ func main() {
 	})
 
 	//e.GET("/exchanges", h.getExchanges)
-	//e.GET("/accounts", h.getAccounts)
+	e.GET("/accounts", h.getAccounts)
 	e.POST("/v3/orders", h.getOrders)
 	e.POST("/v3/orders/:orderID/place", h.placeOrder)
+	e.POST("/v3/orders/:orderID/takeProfit", h.takeProfit)
 	e.POST("/v3/orders/:orderID/cancel", h.cancelOrder)
 	//e.POST("/v3/orders/:orderID/replace", h.replaceOrder)
 	e.Logger.Fatal(e.Start(":1323"))
@@ -52,16 +53,16 @@ type api struct {
 //	return c.JSON(http.StatusOK, accounts)
 //}
 
-//func (a api) getAccounts(c echo.Context) error {
-//	accounts, err := a.exApi.GetUserAccounts()
-//	if err != nil {
-//		return c.JSON(http.StatusBadRequest, echo.Map{
-//			"error": err.Error(),
-//		})
-//	}
-//
-//	return c.JSON(http.StatusOK, accounts)
-//}
+func (a api) getAccounts(c echo.Context) error {
+	accounts, err := a.exApi.GetUserAccounts()
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, echo.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(http.StatusOK, accounts)
+}
 
 type placeOrderRequest struct {
 	SymbolID   string  `json:"symbolID"`
@@ -105,7 +106,7 @@ func (a api) placeOrder(c echo.Context) error {
 	}
 	orderID := c.Param("orderID")
 
-	order, hasOrder, err := a.exApi.GetActiveOrder(orderID)
+	order, hasOrder, err := a.exApi.GetActiveOrderByID(orderID)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, echo.Map{
 			"error": err.Error(),
@@ -145,9 +146,9 @@ func (a api) placeOrder(c echo.Context) error {
 		SymbolID:   symbol,
 		Duration:   req.Duration,
 		OrderType:  req.OrderType,
-		Quantity:   fmt.Sprintf("%.2f", req.Quantity),
+		Quantity:   fmt.Sprintf("%.5f", req.Quantity),
 		Side:       req.Side,
-		LimitPrice: fmt.Sprintf("%.2f", req.LimitPrice),
+		LimitPrice: fmt.Sprintf("%.5f", req.LimitPrice),
 		Instrument: instrument,
 		StopLoss:   floatToString(req.StopLoss),
 		TakeProfit: floatToString(req.TakeProfit),
@@ -176,7 +177,7 @@ func (a api) placeOrder(c echo.Context) error {
 
 func floatToString(k float64) *string {
 	if k > 0 {
-		valS := fmt.Sprintf("%.2f", k)
+		valS := fmt.Sprintf("%.5f", k)
 		return &valS
 	}
 	return nil
@@ -198,7 +199,7 @@ func (a api) cancelOrder(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	order, hasOrder, err := a.exApi.GetActiveOrder(c.Param("orderID"))
+	order, hasOrder, err := a.exApi.GetActiveOrderByID(c.Param("orderID"))
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, echo.Map{
 			"error": err.Error(),
@@ -214,7 +215,7 @@ func (a api) cancelOrder(c echo.Context) error {
 
 	err = a.exApi.CancelOrder(order.OrderID)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, echo.Map{
+		return c.JSON(http.StatusInternalServerError, echo.Map{
 			"error": err.Error(),
 		})
 	}
@@ -300,6 +301,66 @@ func (a api) getOrders(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, orders)
+}
+
+type takeProfitRequest struct {
+	LimitPrice float64 `json:"limitPrice"`
+}
+
+func (a api) takeProfit(c echo.Context) error {
+	var err error
+	defer func() {
+		if err != nil {
+			a.sendErrorToSlack("takeProfit", err)
+		}
+	}()
+
+	req := new(takeProfitRequest)
+	if err = c.Bind(req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	orderID := c.Param("orderID")
+
+	orders, err := a.exApi.GetActiveOrdersByID(orderID)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, echo.Map{
+			"error": err.Error(),
+		})
+	}
+
+	takeProfitOrder, hasOrder := getTakeProfitOrder(orders)
+	if !hasOrder {
+		err = fmt.Errorf("no active order found")
+		return c.JSON(http.StatusBadRequest, echo.Map{
+			"error": err.Error(),
+		})
+	}
+
+	_, err = a.exApi.ReplaceOrder(takeProfitOrder.OrderID, httplib.ReplaceOrderPayload{
+		Action: "replace",
+		Parameters: httplib.ReplaceOrderParameters{
+			Quantity:   takeProfitOrder.OrderParameters.Quantity,
+			LimitPrice: fmt.Sprintf("%.4f", req.LimitPrice),
+		},
+	})
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, echo.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(http.StatusOK, echo.Map{})
+}
+
+func getTakeProfitOrder(orders []httplib.OrderV3) (*httplib.OrderV3, bool) {
+	for _, order := range orders {
+		if len(order.OrderParameters.OcoGroup) > 0 && order.OrderParameters.OrderType == "limit" {
+			return &order, true
+		}
+	}
+
+	return nil, false
 }
 
 func (a api) successFullPlaceOrder(orderId string) {

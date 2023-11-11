@@ -139,17 +139,27 @@ func (a Api) PlaceOrderV3(req *OrderSentTypeV3) ([]OrderSentTypeV3Response, erro
 	return result, nil
 }
 
-func (a Api) GetActiveOrder(orderID string) (OrderV3, bool, error) {
+func (a Api) GetActiveOrdersByID(orderID string) ([]OrderV3, error) {
+	orders, err := a.GetActiveOrdersV3()
+	if err != nil {
+		return nil, err
+	}
+
+	orders, _ = getActiveOrdersByID(orders, orderID)
+	return orders, nil
+}
+
+func (a Api) GetActiveOrderByID(orderID string) (OrderV3, bool, error) {
 	orders, err := a.GetActiveOrdersV3()
 	if err != nil {
 		return OrderV3{}, false, err
 	}
 
-	order, hasOrder := getActiveOrder(orders, orderID)
+	order, hasOrder := getActiveOrderByID(orders, orderID)
 	return order, hasOrder, nil
 }
 
-func getActiveOrder(orders []OrderV3, orderID string) (OrderV3, bool) {
+func getActiveOrderByID(orders []OrderV3, orderID string) (OrderV3, bool) {
 	for _, order := range orders {
 		if order.ClientTag == orderID {
 			return order, true
@@ -157,6 +167,19 @@ func getActiveOrder(orders []OrderV3, orderID string) (OrderV3, bool) {
 	}
 
 	return OrderV3{}, false
+}
+
+func getActiveOrdersByID(orders []OrderV3, orderID string) ([]OrderV3, bool) {
+	newOrdersList := make([]OrderV3, 0)
+	hasActiveOrders := false
+	for _, order := range orders {
+		if order.ClientTag == orderID {
+			newOrdersList = append(newOrdersList, order)
+			hasActiveOrders = true
+		}
+	}
+
+	return newOrdersList, hasActiveOrders
 }
 
 // GetActiveOrdersV3 return the list of active trading orders
@@ -200,6 +223,39 @@ func (a Api) ReplaceOrder(orderID string, req ReplaceOrderPayload) (*ReplaceOrde
 		SetBody(req).
 		SetHeader("Authorization", a.Jwt()).
 		Post(fmt.Sprintf("%s/trade/3.0/orders/%s", a.BaseURL, orderID))
+
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode() >= http.StatusInternalServerError {
+		return nil, fmt.Errorf("internal server error")
+	}
+
+	if resp.IsError() {
+		if len(errRes) == 0 {
+			return nil, fmt.Errorf("error: %s", string(resp.Body()))
+		}
+		return nil, errRes[0]
+	}
+
+	return result, nil
+}
+
+type UserAccount struct {
+	Status    string `json:"status"`
+	AccountID string `json:"accountId"`
+}
+
+func (a Api) GetUserAccounts() (*UserAccounts, error) {
+	var result *UserAccounts
+	var errRes []ErrorResponse
+
+	resp, err := a.cli.R().
+		SetResult(&result).
+		SetError(&errRes).
+		SetHeader("Authorization", a.Jwt()).
+		Get(fmt.Sprintf("%s/md/3.0/accounts", a.BaseURL))
 
 	if err != nil {
 		return nil, err

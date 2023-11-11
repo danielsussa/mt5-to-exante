@@ -87,12 +87,6 @@ func NewOrdersV2() *OrdersV2 { return new(OrdersV2) }
 // NewOrdersV3 constructor
 func NewOrdersV3() *OrdersV3 { return new(OrdersV3) }
 
-// UserAccount model
-type UserAccount struct {
-	Status    string `json:"status"`
-	AccountID string `json:"accountId"`
-}
-
 // UserAccounts model
 type UserAccounts []UserAccount
 

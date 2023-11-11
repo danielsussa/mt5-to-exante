@@ -194,14 +194,6 @@ type ReplaceOrderParameters struct {
 }
 
 // GetUserAccounts return the list of user accounts and their statuses
-func (h HTTPApi) GetUserAccounts() (*UserAccounts, error) {
-	m := NewUserAccounts()
-	err := h.get(m, requestData{
-		action:  accountsAction,
-		version: h.getVersion(),
-	})
-	return m, err
-}
 
 // GetCurrencies return the list of available currencies
 func (h HTTPApi) GetCurrencies() (*Сurrencys, error) {

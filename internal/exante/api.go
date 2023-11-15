@@ -149,6 +149,19 @@ func (a Api) GetActiveOrdersByID(orderID string) ([]OrderV3, error) {
 	return orders, nil
 }
 
+func (a Api) GetFilledOrderByID(orderID string) (OrderV3, bool, error) {
+	orders, err := a.GetOrdersV3()
+	if err != nil {
+		return OrderV3{}, false, err
+	}
+
+	order, hasOrder := getActiveOrderByID(orders, orderID)
+	if order.OrderState.Status == "filled" {
+		return order, hasOrder, nil
+	}
+	return order, false, nil
+}
+
 func (a Api) GetActiveOrderByID(orderID string) (OrderV3, bool, error) {
 	orders, err := a.GetActiveOrdersV3()
 	if err != nil {
@@ -193,6 +206,35 @@ func (a Api) GetActiveOrdersV3() (OrdersV3, error) {
 		SetError(&errRes).
 		SetHeader("Authorization", a.Jwt()).
 		Get(fmt.Sprintf("%s/trade/3.0/orders/active", a.BaseURL))
+
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode() >= http.StatusInternalServerError {
+		return nil, fmt.Errorf("internal server error")
+	}
+
+	if resp.IsError() {
+		if len(errRes) == 0 {
+			return nil, fmt.Errorf("error: %s", string(resp.Body()))
+		}
+		return nil, errRes[0]
+	}
+
+	return result, nil
+}
+
+func (a Api) GetOrdersV3() (OrdersV3, error) {
+
+	var result OrdersV3
+	var errRes []ErrorResponse
+
+	resp, err := a.cli.R().
+		SetResult(&result).
+		SetError(&errRes).
+		SetHeader("Authorization", a.Jwt()).
+		Get(fmt.Sprintf("%s/trade/3.0/orders", a.BaseURL))
 
 	if err != nil {
 		return nil, err

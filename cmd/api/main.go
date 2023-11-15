@@ -9,6 +9,9 @@ import (
 	"os"
 )
 
+// MQL link orders / buy and sell
+// take profit not finding limitPrice
+
 func main() {
 	h := api{
 		exApi: httplib.NewApi(
@@ -33,6 +36,7 @@ func main() {
 	e.POST("/v3/orders/:orderID/place", h.placeOrder)
 	e.POST("/v3/orders/:orderID/takeProfit", h.takeProfit)
 	e.POST("/v3/orders/:orderID/cancel", h.cancelOrder)
+	e.POST("/v3/positions/:orderID/close", h.closePosition)
 	//e.POST("/v3/orders/:orderID/replace", h.replaceOrder)
 	e.Logger.Fatal(e.Start(":1323"))
 }
@@ -200,6 +204,46 @@ func (a api) cancelOrder(c echo.Context) error {
 	}
 
 	order, hasOrder, err := a.exApi.GetActiveOrderByID(c.Param("orderID"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, echo.Map{
+			"error": err.Error(),
+		})
+	}
+
+	if !hasOrder {
+		err = fmt.Errorf("no active order found")
+		return c.JSON(http.StatusBadRequest, echo.Map{
+			"error": err.Error(),
+		})
+	}
+
+	err = a.exApi.CancelOrder(order.OrderID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, echo.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(http.StatusOK, echo.Map{})
+}
+
+type closePositionRequest struct {
+	httplib.Api
+}
+
+func (a api) closePosition(c echo.Context) error {
+	var err error
+	defer func() {
+		if err != nil {
+			a.sendErrorToSlack("closePosition", err)
+		}
+	}()
+	req := new(closePositionRequest)
+	if err = c.Bind(req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	order, hasOrder, err := a.exApi.GetFilledOrderByID(c.Param("orderID"))
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, echo.Map{
 			"error": err.Error(),

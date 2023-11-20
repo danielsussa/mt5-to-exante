@@ -149,6 +149,16 @@ func (a Api) GetActiveOrdersByID(orderID string) ([]OrderV3, error) {
 	return orders, nil
 }
 
+func (a Api) GetOrdersByID(orderID string) ([]OrderV3, error) {
+	orders, err := a.GetOrdersV3()
+	if err != nil {
+		return nil, err
+	}
+
+	orders, _ = getOrdersByID(orders, orderID)
+	return orders, nil
+}
+
 func (a Api) GetFilledOrderByID(orderID string) (OrderV3, bool, error) {
 	orders, err := a.GetOrdersV3()
 	if err != nil {
@@ -183,6 +193,19 @@ func getActiveOrderByID(orders []OrderV3, orderID string) (OrderV3, bool) {
 }
 
 func getActiveOrdersByID(orders []OrderV3, orderID string) ([]OrderV3, bool) {
+	newOrdersList := make([]OrderV3, 0)
+	hasActiveOrders := false
+	for _, order := range orders {
+		if order.ClientTag == orderID {
+			newOrdersList = append(newOrdersList, order)
+			hasActiveOrders = true
+		}
+	}
+
+	return newOrdersList, hasActiveOrders
+}
+
+func getOrdersByID(orders []OrderV3, orderID string) ([]OrderV3, bool) {
 	newOrdersList := make([]OrderV3, 0)
 	hasActiveOrders := false
 	for _, order := range orders {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/slack-go/slack"
 	httplib "mt-to-exante/internal/exante"
@@ -37,6 +38,7 @@ func main() {
 	e.POST("/v3/orders/:orderID/takeProfit", h.takeProfit)
 	e.POST("/v3/orders/:orderID/cancel", h.cancelOrder)
 	e.POST("/v3/positions/:orderID/close", h.closePosition)
+	e.POST("/v3/positions/:orderID/tpls", h.changeTPLS)
 	//e.POST("/v3/orders/:orderID/replace", h.replaceOrder)
 	e.Logger.Fatal(e.Start(":1323"))
 }
@@ -179,6 +181,181 @@ func (a api) placeOrder(c echo.Context) error {
 
 }
 
+type changeOrderRequest struct {
+	LimitPrice float64 `json:"limitPrice"`
+	TakeProfit float64 `json:"takeProfit"`
+	StopLoss   float64 `json:"stopLoss"`
+}
+
+func (a api) changeOrder(c echo.Context) error {
+	var err error
+	defer func() {
+		if err != nil {
+			a.sendErrorToSlack("changeOrder", err)
+		}
+	}()
+
+	req := new(changeOrderRequest)
+	if err = c.Bind(req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	orderID := c.Param("orderID")
+
+	orders, err := a.exApi.GetActiveOrdersByID(orderID)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, echo.Map{
+			"error": err.Error(),
+		})
+	}
+
+	parentOrder, has := getParentOrder(orders)
+	if !has {
+		return c.JSON(http.StatusBadRequest, echo.Map{
+			"error": "no parent order registered",
+		})
+	}
+	fmt.Println(parentOrder)
+
+	if req.StopLoss > 0 {
+		stopLossOrder, has := getTakeProfitOrder(orders)
+		if !has {
+
+		}
+
+		a.exApi.ReplaceOrder(orderID, httplib.ReplaceOrderPayload{
+			Action: "replace",
+			Parameters: httplib.ReplaceOrderParameters{
+				Quantity:   stopLossOrder.OrderParameters.Quantity,
+				LimitPrice: fmt.Sprintf("%.5f", req.StopLoss),
+			},
+		})
+	}
+
+	a.successFullPlaceOrder(c.Param("orderID"))
+
+	return c.JSON(http.StatusOK, orders)
+
+}
+
+type changeTPLSRequest struct {
+	TakeProfit float64 `json:"takeProfit"`
+	StopLoss   float64 `json:"stopLoss"`
+}
+
+func (a api) changeTPLS(c echo.Context) error {
+	var err error
+	defer func() {
+		if err != nil {
+			a.sendErrorToSlack("changeTPLS", err)
+		}
+	}()
+
+	req := new(changeTPLSRequest)
+	if err = c.Bind(req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	orderID := c.Param("orderID")
+
+	orders, err := a.exApi.GetOrdersByID(orderID)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, echo.Map{
+			"error": err.Error(),
+		})
+	}
+
+	parentOrder, hasParent := getParentOrder(orders)
+	if !hasParent {
+		return c.JSON(http.StatusBadRequest, echo.Map{
+			"error": "no parent order registered",
+		})
+	}
+
+	ocoGroup := ""
+
+	stopLossOrder, hasSLOrder := getStopLossOrder(orders)
+	if hasSLOrder {
+		ocoGroup = stopLossOrder.OrderParameters.OcoGroup
+	}
+
+	takePriceOrder, hasTPOrder := getTakeProfitOrder(orders)
+	if hasTPOrder {
+		ocoGroup = takePriceOrder.OrderParameters.OcoGroup
+	}
+
+	if ocoGroup == "" {
+		ocoGroup = uuid.New().String()
+	}
+
+	if req.StopLoss > 0 {
+		if !hasSLOrder {
+			_, err = a.exApi.PlaceOrderV3(&httplib.OrderSentTypeV3{
+				AccountID:      parentOrder.AccountID,
+				Instrument:     parentOrder.OrderParameters.SymbolId,
+				LimitPrice:     covert5Decimals(req.StopLoss),
+				Side:           getReverseOrderSide(*parentOrder),
+				Quantity:       parentOrder.OrderParameters.Quantity,
+				Duration:       parentOrder.OrderParameters.Duration,
+				IfDoneParentID: parentOrder.OrderID,
+				OcoGroup:       ocoGroup,
+				ClientTag:      orderID,
+				OrderType:      "limit",
+				SymbolID:       parentOrder.OrderParameters.SymbolId,
+			})
+		} else {
+			_, err = a.exApi.ReplaceOrder(orderID, httplib.ReplaceOrderPayload{
+				Action: "replace",
+				Parameters: httplib.ReplaceOrderParameters{
+					Quantity:   stopLossOrder.OrderParameters.Quantity,
+					LimitPrice: fmt.Sprintf("%.5f", req.StopLoss),
+				},
+			})
+		}
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, echo.Map{
+				"error": err.Error(),
+			})
+		}
+	}
+
+	if req.TakeProfit > 0 {
+		if !hasTPOrder {
+			_, err = a.exApi.PlaceOrderV3(&httplib.OrderSentTypeV3{
+				AccountID:      parentOrder.AccountID,
+				Instrument:     parentOrder.OrderParameters.SymbolId,
+				LimitPrice:     covert5Decimals(req.TakeProfit),
+				Side:           getReverseOrderSide(*parentOrder),
+				Quantity:       parentOrder.OrderParameters.Quantity,
+				Duration:       parentOrder.OrderParameters.Duration,
+				IfDoneParentID: parentOrder.OrderID,
+				OcoGroup:       ocoGroup,
+				ClientTag:      orderID,
+				OrderType:      "limit",
+				SymbolID:       parentOrder.OrderParameters.SymbolId,
+			})
+		} else {
+			_, err = a.exApi.ReplaceOrder(orderID, httplib.ReplaceOrderPayload{
+				Action: "replace",
+				Parameters: httplib.ReplaceOrderParameters{
+					Quantity:   stopLossOrder.OrderParameters.Quantity,
+					LimitPrice: fmt.Sprintf("%.5f", req.TakeProfit),
+				},
+			})
+		}
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, echo.Map{
+				"error": err.Error(),
+			})
+		}
+	}
+
+	a.successFullPlaceOrder(c.Param("orderID"))
+
+	return c.JSON(http.StatusOK, orders)
+
+}
+
 func floatToString(k float64) *string {
 	if k > 0 {
 		valS := fmt.Sprintf("%.5f", k)
@@ -257,7 +434,15 @@ func (a api) closePosition(c echo.Context) error {
 		})
 	}
 
-	err = a.exApi.CancelOrder(order.OrderID)
+	_, err = a.exApi.PlaceOrderV3(&httplib.OrderSentTypeV3{
+		AccountID:  order.AccountID,
+		Instrument: order.OrderParameters.SymbolId,
+		Side:       getReverseOrderSide(order),
+		Quantity:   order.OrderParameters.Quantity,
+		Duration:   "day",
+		OrderType:  "market",
+		SymbolID:   order.OrderParameters.SymbolId,
+	})
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, echo.Map{
 			"error": err.Error(),
@@ -385,7 +570,7 @@ func (a api) takeProfit(c echo.Context) error {
 		Action: "replace",
 		Parameters: httplib.ReplaceOrderParameters{
 			Quantity:   takeProfitOrder.OrderParameters.Quantity,
-			LimitPrice: fmt.Sprintf("%.4f", req.LimitPrice),
+			LimitPrice: covert5Decimals(req.LimitPrice),
 		},
 	})
 	if err != nil {
@@ -397,9 +582,34 @@ func (a api) takeProfit(c echo.Context) error {
 	return c.JSON(http.StatusOK, echo.Map{})
 }
 
+func getReverseOrderSide(order httplib.OrderV3) string {
+	if order.OrderParameters.Side == "buy" {
+		return "sell"
+	}
+	return "buy"
+}
+func getParentOrder(orders []httplib.OrderV3) (*httplib.OrderV3, bool) {
+	for _, order := range orders {
+		if len(order.OrderParameters.OcoGroup) == 0 {
+			return &order, true
+		}
+	}
+
+	return nil, false
+}
 func getTakeProfitOrder(orders []httplib.OrderV3) (*httplib.OrderV3, bool) {
 	for _, order := range orders {
 		if len(order.OrderParameters.OcoGroup) > 0 && order.OrderParameters.OrderType == "limit" {
+			return &order, true
+		}
+	}
+
+	return nil, false
+}
+
+func getStopLossOrder(orders []httplib.OrderV3) (*httplib.OrderV3, bool) {
+	for _, order := range orders {
+		if len(order.OrderParameters.OcoGroup) > 0 && order.OrderParameters.OrderType != "limit" {
 			return &order, true
 		}
 	}
@@ -417,10 +627,15 @@ func (a api) successFullPlaceOrder(orderId string) {
 }
 
 func (a api) sendErrorToSlack(scope string, err error) {
+	fmt.Println("error: ", err.Error())
 	msg := fmt.Sprintf(":red_circle: <!channel> error alert on %s service: %s", scope, err.Error())
 
 	_, _, _ = a.slackApi.PostMessage(
 		"C05TKSB2DR7",
 		slack.MsgOptionText(msg, false),
 	)
+}
+
+func covert5Decimals(k float64) string {
+	return fmt.Sprintf("%.5f", k)
 }

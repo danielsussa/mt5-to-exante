@@ -293,6 +293,7 @@ type OrderParameters struct {
 	Duration       string `json:"duration"`
 	Quantity       string `json:"quantity"`
 	Instrument     string `json:"instrument"`
+	SymbolId       string `json:"symbolId"`
 	OrderType      string `json:"orderType"`
 	OcoGroup       string `json:"ocoGroup"`
 	IfDoneParentID string `json:"ifDoneParentId"`

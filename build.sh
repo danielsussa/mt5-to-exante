@@ -1,0 +1,1 @@
+GOOS=windows GOARCH=amd64 go build -o bin/mt-to-exante-sdk.exe cmd/api/main.go

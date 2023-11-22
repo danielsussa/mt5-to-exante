@@ -87,12 +87,6 @@ func NewOrdersV2() *OrdersV2 { return new(OrdersV2) }
 // NewOrdersV3 constructor
 func NewOrdersV3() *OrdersV3 { return new(OrdersV3) }
 
-// UserAccount model
-type UserAccount struct {
-	Status    string `json:"status"`
-	AccountID string `json:"accountId"`
-}
-
 // UserAccounts model
 type UserAccounts []UserAccount
 
@@ -299,6 +293,7 @@ type OrderParameters struct {
 	Duration       string `json:"duration"`
 	Quantity       string `json:"quantity"`
 	Instrument     string `json:"instrument"`
+	SymbolId       string `json:"symbolId"`
 	OrderType      string `json:"orderType"`
 	OcoGroup       string `json:"ocoGroup"`
 	IfDoneParentID string `json:"ifDoneParentId"`
@@ -482,17 +477,17 @@ type OrderSentTypeV2 struct {
 
 // OrderSentTypeV3 model
 type OrderSentTypeV3 struct {
-	AccountID      string `json:"accountId"`
-	Instrument     string `json:"instrument"`
-	Side           string `json:"side"`
-	Quantity       string `json:"quantity"`
-	Duration       string `json:"duration"`
-	ClientTag      string `json:"clientTag,omitempty"`
-	OcoGroup       string `json:"ocoGroup,omitempty"`
-	LimitPrice     string `json:"limitPrice,omitempty"`
-	IfDoneParentID string `json:"ifDoneParentId,omitempty"`
-	OrderType      string `json:"orderType"`
-	TakeProfit     string `json:"takeProfit,omitempty"`
-	StopLoss       string `json:"stopLoss,omitempty"`
-	SymbolID       string `json:"symbolId"`
+	AccountID      string  `json:"accountId"`
+	Instrument     string  `json:"instrument"`
+	Side           string  `json:"side"`
+	Quantity       string  `json:"quantity"`
+	Duration       string  `json:"duration"`
+	ClientTag      string  `json:"clientTag,omitempty"`
+	OcoGroup       string  `json:"ocoGroup,omitempty"`
+	LimitPrice     string  `json:"limitPrice,omitempty"`
+	IfDoneParentID string  `json:"ifDoneParentId,omitempty"`
+	OrderType      string  `json:"orderType"`
+	TakeProfit     *string `json:"takeProfit,omitempty"`
+	StopLoss       *string `json:"stopLoss,omitempty"`
+	SymbolID       string  `json:"symbolId"`
 }

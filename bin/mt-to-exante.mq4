@@ -15,23 +15,7 @@ input string         accoundID="QJO2251.001";
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
-int OnInit() {
-   string cookie=NULL;
-   string headers = "Accept: application/json";
-   char   post[],result[];
-   string url= StringFormat("%s/health", sdkUrl);
-   int res=WebRequest("GET",url,cookie,NULL,2000,post,0,result,headers);
-   if(res==-1){
-      MessageBox("cannot perform healthcheck on url: " + url,"Error",MB_ICONERROR);
-      return(-1);
-   }
-   if(res!=200){
-      MessageBox("no response from: " + url,"Error",MB_ICONERROR);
-      return(-1);
-   }
 
-   return(INIT_SUCCEEDED);
-}
 
 //+------------------------------------------------------------------+
 //| Expert deinitialization function                                 |
@@ -49,20 +33,17 @@ void OnTrade() {
 }
 
 void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &request,const MqlTradeResult &result){
-   ulong            lastOrderID   =trans.order;
    double            priceSl   =trans.price_sl;
    double            priceTp   =trans.price_tp;
-   double            volume   =trans.volume;
-   double            price   =trans.price;
+   double            volume   =request.volume;
+   double            price   =request.price;
    ENUM_ORDER_TYPE  lastOrderType =trans.order_type;
    ENUM_ORDER_STATE lastOrderState=trans.order_state;
-   string trans_symbol=trans.symbol;
+   string trans_symbol=request.symbol;
 
 
+   PrintFormat("[t_order=%d/res_order=%d/position=%d] ot: %s t: %s d: %s rt: %s",trans.order,result.order,request.position,EnumToString(lastOrderType),EnumToString(trans.type),EnumToString(lastOrderState),EnumToString(request.action));
 
-   if (lastOrderState != ORDER_STATE_PLACED && lastOrderState != ORDER_STATE_CANCELED) {
-      return;
-   }
 
 
    CJAVal jv;
@@ -70,7 +51,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
    jv["instrument"]=trans_symbol;
    jv["limitPrice"]=price;
    jv["quantity"]=volume;
-   jv["duration"]="day";
+   jv["duration"]="good_till_cancel";
    jv["accountId"]=accoundID;
 
    switch(lastOrderType)
@@ -78,89 +59,129 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
        case ORDER_TYPE_BUY:
         {
           jv["side"]="buy";
-          jv["orderType"]="market";
         }
          break;
        case ORDER_TYPE_SELL:
         {
           jv["side"]="sell";
-          jv["orderType"]="market";
         }
          break;
        case ORDER_TYPE_BUY_LIMIT:
         {
           jv["side"]="buy";
-          jv["orderType"]="limit";
         }
          break;
        case ORDER_TYPE_SELL_LIMIT:
         {
           jv["side"]="sell";
-          jv["orderType"]="limit";
         }
          break;
        case ORDER_TYPE_BUY_STOP:
         {
           jv["side"]="buy";
-          jv["orderType"]="stop";
-          jv["stopPrice"]=trans.price_sl;
-          jv["takeProfit"]=trans.price_tp;
+
         }
          break;
        case ORDER_TYPE_SELL_STOP:
         {
           jv["side"]="sell";
-          jv["orderType"]="stop";
-          jv["stopPrice"]=trans.price_sl;
-          jv["takeProfit"]=trans.price_tp;
         }
          break;
        case ORDER_TYPE_BUY_STOP_LIMIT:
         {
           jv["side"]="buy";
-          jv["orderType"]="stop_limit";
-          jv["stopPrice"]=trans.price_sl;
-          jv["takeProfit"]=trans.price_tp;
         }
          break;
        case ORDER_TYPE_SELL_STOP_LIMIT:
         {
           jv["side"]="sell";
-          jv["orderType"]="stop_limit";
-          jv["stopPrice"]=trans.price_sl;
-          jv["takeProfit"]=trans.price_tp;
         }
          break;
       }
 
+
+   bool isLimitOrder =
+      request.action == TRADE_ACTION_PENDING &&
+      trans.position == NULL;
+
+   bool changeLimitOrder =
+      request.action == TRADE_ACTION_MODIFY &&
+      trans.position == NULL;
+
+   bool isMarketOrder =
+      request.action == TRADE_ACTION_DEAL &&
+      request.position == NULL;
+
+   bool isClosePosition =
+      request.action == TRADE_ACTION_DEAL &&
+      request.position != NULL;
+
+   bool isCancelOrder =
+      request.action == TRADE_ACTION_REMOVE;
+
+   bool isChangeTpSl =
+      request.action == TRADE_ACTION_SLTP &&
+      request.position != NULL;
+
+
+
+   if (isLimitOrder) {
+      jv["stopPrice"]=request.sl;
+      jv["takeProfit"]=request.tp;
+      jv["orderType"]="limit";
+      PrintFormat("LIMIT ORDER: #%d %s modified: SL=%.5f TP=%.5f",result.order,trans_symbol,request.sl,request.tp);
+
+      string url= StringFormat("%s/v3/orders/%d/place", sdkUrl, result.order);
+      performOrder(url, &jv);
+
+   }
+   if (isMarketOrder) {
+      jv["stopPrice"]=request.sl;
+      jv["takeProfit"]=request.tp;
+      jv["orderType"]="market";
+      PrintFormat("MARKET_ORDER: #%d %s modified: SL=%.5f TP=%.5f",result.order,trans_symbol,request.sl,request.tp);
+
+      string url= StringFormat("%s/v3/orders/%d/place", sdkUrl, result.order);
+      performOrder(url, &jv);
+   }
+   if (changeLimitOrder) {
+      jv["stopPrice"]=request.sl;
+      jv["takeProfit"]=request.tp;
+      jv["orderType"]="limit";
+      PrintFormat("CHANGE_LIMIT: #%d %s modified: SL=%.5f TP=%.5f",result.order,trans_symbol,request.sl,request.tp);
+
+      string url= StringFormat("%s/v3/orders/%d/place", sdkUrl, result.order);
+      performOrder(url, &jv);
+   }
+   if (isClosePosition) {
+      PrintFormat("CLOSE_POSITION: #%d %s",request.position,trans_symbol);
+
+      string url= StringFormat("%s/v3/positions/%d/close", sdkUrl, request.position);
+      performOrder(url, &jv);
+   }
+   if (isCancelOrder) {
+      PrintFormat("CANCEL ORDER: #%d %s modified: SL=%.5f TP=%.5f",result.order,trans_symbol,trans.price_sl,trans.price_tp);
+
+      string url= StringFormat("%s/v3/orders/%d/cancel", sdkUrl, result.order);
+      performOrder(url, &jv);
+   }
+   if (isChangeTpSl) {
+      jv["stopLoss"]=request.sl;
+      jv["takeProfit"]=request.tp;
+      PrintFormat("CHANGE_TPLS: #%d %s modified: SL=%.5f TP=%.5f",request.position,trans_symbol,request.sl,request.tp);
+
+      string url= StringFormat("%s/v3/positions/%d/tpls", sdkUrl, request.position);
+      performOrder(url, &jv);
+   }
+
+}
+
+void performOrder(string url, CJAVal* jv) {
    char data[];
    ArrayResize(data, StringToCharArray(jv.Serialize(), data, 0, WHOLE_ARRAY)-1);
 
    char res_data[];
    string res_headers=NULL;
 
-   switch(trans.type)
-     {
-      case TRADE_TRANSACTION_ORDER_UPDATE:
-        {
-           PrintFormat("TRADE_TRANSACTION_ORDER_UPDATE: #%d %s modified: SL=%.5f TP=%.5f",lastOrderID,trans_symbol,trans.price_sl,trans.price_tp);
-           string url= StringFormat("%s/v3/orders/%d/place", sdkUrl, lastOrderID);
-           int r=WebRequest("POST", url, "Content-Type: application/json\r\n", 5000, data, res_data, res_headers);
-
-
-        }
-      break;
-
-      case TRADE_TRANSACTION_ORDER_DELETE:
-        {
-         PrintFormat("TRADE_TRANSACTION_ORDER_DELETE: #%d %s modified: SL=%.5f TP=%.5f",lastOrderID,trans_symbol,trans.price_sl,trans.price_tp);
-         string url= StringFormat("%s/v3/orders/%d/cancel", sdkUrl, lastOrderID);
-         int r=WebRequest("POST", url, "Content-Type: application/json\r\n", 5000, data, res_data, res_headers);
-
-        }
-      break;
-
-     }
-
-     Print("kind: ", trans.type);
+   int r=WebRequest("POST", url, "Content-Type: application/json\r\n", 5000, data, res_data, res_headers);
 }

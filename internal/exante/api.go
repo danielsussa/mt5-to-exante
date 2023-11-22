@@ -5,10 +5,29 @@ import (
 	"fmt"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/go-resty/resty/v2"
+	"github.com/peterbourgon/diskv/v3"
 	"net/http"
 	"net/http/httputil"
 	"time"
 )
+
+// Standard jwt-go claims does not support multiple audience
+type claimsWithMultiAudSupport struct {
+	Aud []string `json:"aud"`
+	jwt.StandardClaims
+}
+
+type ErrorResponse struct {
+	Message string
+}
+
+func (e ErrorResponse) Error() string {
+	return fmt.Sprintf("error: %s", e.Message)
+}
+
+type ReplaceOrderResponse struct {
+	OrderId string
+}
 
 type Api struct {
 	BaseURL       string `json:"baseURL"`
@@ -16,6 +35,7 @@ type Api struct {
 	ClientID      string `json:"clientID"`
 	SharedKey     string `json:"sharedKey"`
 	cli           *resty.Client
+	d             *diskv.Diskv
 }
 
 func NewApi(baseUrl, appID, cliID, sharedKey string) Api {
@@ -37,13 +57,32 @@ func NewApi(baseUrl, appID, cliID, sharedKey string) Api {
 			return 0, errors.New("quota exceeded")
 		})
 
+	d := diskv.New(diskv.Options{
+		BasePath:     fmt.Sprintf("orders-%s", appID),
+		Transform:    func(s string) []string { return []string{} },
+		CacheSizeMax: 1024 * 1024,
+	})
+
 	return Api{
 		BaseURL:       baseUrl,
 		ApplicationID: appID,
 		ClientID:      cliID,
 		SharedKey:     sharedKey,
 		cli:           client,
+		d:             d,
 	}
+}
+
+type order struct {
+	Main       string
+	StopLoss   string
+	TakeProfit string
+}
+
+var Scopes = []string{
+	"crossrates", "change", "crossrates", "summary",
+	"symbols", "feed", "ohlc", "orders", "transactions",
+	"accounts",
 }
 
 func (a Api) Jwt() string {
@@ -70,6 +109,13 @@ func (a Api) Jwt() string {
 type ReplaceOrderPayload struct {
 	Action     string                 `json:"action"`
 	Parameters ReplaceOrderParameters `json:"parameters,omitempty"`
+}
+
+type ReplaceOrderParameters struct {
+	Quantity      string `json:"quantity,omitempty"`
+	LimitPrice    string `json:"limitPrice,omitempty"`
+	StopPrice     string `json:"stopPrice,omitempty"`
+	PriceDistance string `json:"priceDistance,omitempty"`
 }
 
 type CancelOrderPayload struct {
@@ -107,6 +153,10 @@ func (a Api) CancelOrder(orderID string) error {
 	}
 
 	return nil
+}
+
+type OrderSentTypeV3Response struct {
+	OrderId string
 }
 
 func (a Api) PlaceOrderV3(req *OrderSentTypeV3) ([]OrderSentTypeV3Response, error) {

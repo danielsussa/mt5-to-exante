@@ -4,14 +4,11 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
-	"github.com/slack-go/slack"
+	"github.com/peterbourgon/diskv/v3"
 	httplib "mt-to-exante/internal/exante"
 	"net/http"
 	"os"
 )
-
-// MQL link orders / buy and sell
-// take profit not finding limitPrice
 
 func main() {
 	h := api{
@@ -21,7 +18,6 @@ func main() {
 			os.Getenv("CLIENT_ID"),
 			os.Getenv("SHARED_KEY"),
 		),
-		slackApi: slack.New("xoxb-5937889843297-5927731285988-rUJWhdHM5a3kf1ythfjKCflb", slack.OptionDebug(true)),
 	}
 
 	e := echo.New()
@@ -44,20 +40,28 @@ func main() {
 }
 
 type api struct {
-	exApi    httplib.Api
-	slackApi *slack.Client
+	exApi httplib.Api
 }
 
-//func (a api) getExchanges(c echo.Context) error {
-//	accounts, err := a.exApi.GetSymbolV3("FOREX")
-//	if err != nil {
-//		return c.JSON(http.StatusBadRequest, echo.Map{
-//			"error": err.Error(),
-//		})
-//	}
-//
-//	return c.JSON(http.StatusOK, accounts)
-//}
+type orderState struct {
+	d *diskv.Diskv
+}
+
+func startOrderState() orderState {
+	d := diskv.New(diskv.Options{
+		BasePath:     "orders",
+		Transform:    func(s string) []string { return []string{} },
+		CacheSizeMax: 1024 * 1024,
+	})
+
+	return orderState{d: d}
+}
+
+type order struct {
+	Main       string
+	StopLoss   string
+	TakeProfit string
+}
 
 func (a api) getAccounts(c echo.Context) error {
 	accounts, err := a.exApi.GetUserAccounts()
@@ -91,23 +95,15 @@ func convertToSymbolInstrument(s string) (string, string, bool) {
 }
 
 func (a api) placeOrder(c echo.Context) error {
-	var err error
-	defer func() {
-		if err != nil {
-			a.sendErrorToSlack("placeOrder", err)
-		}
-	}()
-
 	req := new(placeOrderRequest)
-	if err = c.Bind(req); err != nil {
+	if err := c.Bind(req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	symbol, instrument, has := convertToSymbolInstrument(req.SymbolID)
 	if !has {
-		err = fmt.Errorf("symbol not found")
 		return c.JSON(http.StatusBadRequest, echo.Map{
-			"error": err.Error(),
+			"error": "symbol not found",
 		})
 	}
 	orderID := c.Param("orderID")
@@ -175,8 +171,6 @@ func (a api) placeOrder(c echo.Context) error {
 		})
 	}
 
-	a.successFullPlaceOrder(c.Param("orderID"))
-
 	return c.JSON(http.StatusOK, orders)
 
 }
@@ -188,15 +182,8 @@ type changeOrderRequest struct {
 }
 
 func (a api) changeOrder(c echo.Context) error {
-	var err error
-	defer func() {
-		if err != nil {
-			a.sendErrorToSlack("changeOrder", err)
-		}
-	}()
-
 	req := new(changeOrderRequest)
-	if err = c.Bind(req); err != nil {
+	if err := c.Bind(req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
@@ -232,8 +219,6 @@ func (a api) changeOrder(c echo.Context) error {
 		})
 	}
 
-	a.successFullPlaceOrder(c.Param("orderID"))
-
 	return c.JSON(http.StatusOK, orders)
 
 }
@@ -244,15 +229,8 @@ type changeTPLSRequest struct {
 }
 
 func (a api) changeTPLS(c echo.Context) error {
-	var err error
-	defer func() {
-		if err != nil {
-			a.sendErrorToSlack("changeTPLS", err)
-		}
-	}()
-
 	req := new(changeTPLSRequest)
-	if err = c.Bind(req); err != nil {
+	if err := c.Bind(req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
@@ -350,8 +328,6 @@ func (a api) changeTPLS(c echo.Context) error {
 		}
 	}
 
-	a.successFullPlaceOrder(c.Param("orderID"))
-
 	return c.JSON(http.StatusOK, orders)
 
 }
@@ -369,14 +345,8 @@ type cancelOrderRequest struct {
 }
 
 func (a api) cancelOrder(c echo.Context) error {
-	var err error
-	defer func() {
-		if err != nil {
-			a.sendErrorToSlack("cancelOrder", err)
-		}
-	}()
 	req := new(cancelOrderRequest)
-	if err = c.Bind(req); err != nil {
+	if err := c.Bind(req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
@@ -409,14 +379,8 @@ type closePositionRequest struct {
 }
 
 func (a api) closePosition(c echo.Context) error {
-	var err error
-	defer func() {
-		if err != nil {
-			a.sendErrorToSlack("closePosition", err)
-		}
-	}()
 	req := new(closePositionRequest)
-	if err = c.Bind(req); err != nil {
+	if err := c.Bind(req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
@@ -452,76 +416,7 @@ func (a api) closePosition(c echo.Context) error {
 	return c.JSON(http.StatusOK, echo.Map{})
 }
 
-type replaceOrderRequest struct {
-	httplib.Api
-	Quantity      string `json:"quantity"`
-	LimitPrice    string `json:"limitPrice"`
-	StopPrice     string `json:"stopPrice"`
-	PriceDistance string `json:"priceDistance"`
-}
-
-//func (a api) replaceOrder(c echo.Context) error {
-//	var err error
-//	defer func() {
-//		if err != nil {
-//			a.sendErrorToSlack("replaceOrder", err)
-//		}
-//	}()
-//
-//	req := new(replaceOrderRequest)
-//	if err = c.Bind(req); err != nil {
-//		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-//	}
-//
-//	orders, err := a.exApi.GetActiveOrdersV3(req.Api)
-//	if err != nil {
-//		return c.JSON(http.StatusBadRequest, echo.Map{
-//			"error": err.Error(),
-//		})
-//	}
-//
-//	mtOrderId := c.Param("orderID")
-//	var currOrder *httplib.OrderV3
-//	for _, order := range *orders {
-//		if order.ClientTag == mtOrderId {
-//			currOrder = &order
-//			break
-//		}
-//	}
-//
-//	if currOrder == nil {
-//		return c.JSON(http.StatusBadRequest, echo.Map{
-//			"error": "no active order found",
-//		})
-//	}
-//
-//	_, err = a.exApi.ReplaceOrder(currOrder.OrderID, httplib.ReplaceOrderPayload{
-//		Api:    req.Api,
-//		Action: "replace",
-//		Parameters: httplib.ReplaceOrderParameters{
-//			Quantity:      req.Quantity,
-//			LimitPrice:    req.LimitPrice,
-//			StopPrice:     req.StopPrice,
-//			PriceDistance: req.PriceDistance,
-//		},
-//	})
-//
-//	if err != nil {
-//		return c.JSON(http.StatusBadRequest, echo.Map{
-//			"error": err.Error(),
-//		})
-//	}
-//	return c.JSON(http.StatusOK, echo.Map{})
-//}
-
 func (a api) getOrders(c echo.Context) error {
-	var err error
-	defer func() {
-		if err != nil {
-			a.sendErrorToSlack("getOrders", err)
-		}
-	}()
-
 	orders, err := a.exApi.GetActiveOrdersV3()
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, echo.Map{
@@ -537,15 +432,9 @@ type takeProfitRequest struct {
 }
 
 func (a api) takeProfit(c echo.Context) error {
-	var err error
-	defer func() {
-		if err != nil {
-			a.sendErrorToSlack("takeProfit", err)
-		}
-	}()
 
 	req := new(takeProfitRequest)
-	if err = c.Bind(req); err != nil {
+	if err := c.Bind(req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
@@ -615,25 +504,6 @@ func getStopLossOrder(orders []httplib.OrderV3) (*httplib.OrderV3, bool) {
 	}
 
 	return nil, false
-}
-
-func (a api) successFullPlaceOrder(orderId string) {
-	msg := fmt.Sprintf("successfull placing order id=%s", orderId)
-
-	_, _, _ = a.slackApi.PostMessage(
-		"C05T772CDKM",
-		slack.MsgOptionText(msg, false),
-	)
-}
-
-func (a api) sendErrorToSlack(scope string, err error) {
-	fmt.Println("error: ", err.Error())
-	msg := fmt.Sprintf(":red_circle: <!channel> error alert on %s service: %s", scope, err.Error())
-
-	_, _, _ = a.slackApi.PostMessage(
-		"C05TKSB2DR7",
-		slack.MsgOptionText(msg, false),
-	)
 }
 
 func covert5Decimals(k float64) string {

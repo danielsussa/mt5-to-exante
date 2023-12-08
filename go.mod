@@ -1,6 +1,6 @@
 module mt-to-exante
 
-go 1.21.0
+go 1.21
 
 require (
 	github.com/apibillme/cache v0.0.0-20180927200649-e0b3581c9b4d // indirect

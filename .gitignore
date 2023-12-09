@@ -4,3 +4,4 @@ prod.env
 bin
 .tmp
 vendor
+.db

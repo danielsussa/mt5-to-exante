@@ -1,12 +1,12 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
-	"github.com/peterbourgon/diskv/v3"
 	"mt-to-exante/internal/exante"
+	"mt-to-exante/internal/orderdb"
+	"mt-to-exante/internal/utils"
 	"net/http"
 	"os"
 )
@@ -24,7 +24,7 @@ func main() {
 			os.Getenv("CLIENT_ID"),
 			os.Getenv("SHARED_KEY"),
 		),
-		orderState: startOrderState(),
+		orderState: orderdb.New(),
 	}
 
 	e := echo.New()
@@ -47,57 +47,7 @@ func main() {
 
 type api struct {
 	exApi      *exante.Api
-	orderState *orderState
-}
-
-type orderState struct {
-	d *diskv.Diskv
-}
-
-func (os *orderState) upsert(ticketID string, order orderGroup) {
-	b, _ := json.Marshal(order)
-	_ = os.d.Write(ticketID, b)
-}
-
-func (os *orderState) get(ticketID string) (orderGroup, bool) {
-	if !os.d.Has(ticketID) {
-		return orderGroup{}, false
-	}
-	b, err := os.d.Read(ticketID)
-	if err != nil {
-		panic(err)
-	}
-	var order orderGroup
-	_ = json.Unmarshal(b, &order)
-
-	return order, true
-}
-
-func startOrderState() *orderState {
-	d := diskv.New(diskv.Options{
-		BasePath:     "orders",
-		Transform:    func(s string) []string { return []string{} },
-		CacheSizeMax: 1024 * 1024,
-	})
-
-	return &orderState{d: d}
-}
-
-type orderGroup struct {
-	Order      orderDB
-	StopLoss   *orderDB
-	TakeProfit *orderDB
-}
-
-type orderDB struct {
-	ID         string
-	Quantity   string
-	OcoGroup   string
-	Side       string
-	Duration   string
-	AccountId  string
-	Symbol     string
-	Instrument string
+	orderState *orderdb.OrderState
 }
 
 func (a api) getJwt(c echo.Context) error {
@@ -148,7 +98,7 @@ func (a api) placeOrder(c echo.Context) error {
 	}
 	orderID := c.Param("orderID")
 
-	orderDB, hasOrder := a.orderState.get(orderID)
+	orderDB, hasOrder := a.orderState.Get(orderID)
 	if hasOrder {
 		return c.JSON(http.StatusBadRequest, echo.Map{
 			"error": "order already exist",
@@ -160,9 +110,9 @@ func (a api) placeOrder(c echo.Context) error {
 		SymbolID:   symbol,
 		Duration:   req.Duration,
 		OrderType:  req.OrderType,
-		Quantity:   convert5Decimals(req.Quantity),
+		Quantity:   utils.Convert5Decimals(req.Quantity),
 		Side:       req.Side,
-		LimitPrice: convert5Decimals(req.LimitPrice),
+		LimitPrice: utils.Convert5Decimals(req.LimitPrice),
 		Instrument: instrument,
 		StopLoss:   floatToString(req.StopLoss),
 		TakeProfit: floatToString(req.TakeProfit),
@@ -182,22 +132,22 @@ func (a api) placeOrder(c echo.Context) error {
 		})
 	}
 
-	parentOrder, has := getParentOrder(orders)
+	parentOrder, has := utils.GetParentOrder(orders)
 	if has {
-		orderDB.Order = *convertExOrderToDB(*parentOrder)
+		orderDB.Order = *utils.ConvertExOrderToDB(*parentOrder)
 	}
 
-	slOrder, has := getStopLossOrder(orders)
+	slOrder, has := utils.GetStopLossOrder(orders)
 	if has {
-		orderDB.StopLoss = convertExOrderToDB(*slOrder)
+		orderDB.StopLoss = utils.ConvertExOrderToDB(*slOrder)
 	}
 
-	tpOrder, has := getTakeProfitOrder(orders)
+	tpOrder, has := utils.GetTakeProfitOrder(orders)
 	if has {
-		orderDB.TakeProfit = convertExOrderToDB(*tpOrder)
+		orderDB.TakeProfit = utils.ConvertExOrderToDB(*tpOrder)
 	}
 
-	a.orderState.upsert(orderID, orderDB)
+	a.orderState.Upsert(orderID, orderDB)
 
 	return c.JSON(http.StatusOK, orders)
 
@@ -217,7 +167,7 @@ func (a api) modifyOrder(c echo.Context) error {
 
 	orderID := c.Param("orderID")
 
-	orderDB, has := a.orderState.get(orderID)
+	orderDB, has := a.orderState.Get(orderID)
 	if !has {
 		return c.JSON(http.StatusBadRequest, echo.Map{
 			"error": "no parent order registered",
@@ -228,7 +178,7 @@ func (a api) modifyOrder(c echo.Context) error {
 		Action: "replace",
 		Parameters: exante.ReplaceOrderParameters{
 			Quantity:   orderDB.Order.Quantity,
-			LimitPrice: convert5Decimals(req.LimitPrice),
+			LimitPrice: utils.Convert5Decimals(req.LimitPrice),
 		},
 	})
 
@@ -239,8 +189,8 @@ func (a api) modifyOrder(c echo.Context) error {
 				Duration:   orderDB.Order.Duration,
 				OrderType:  "stop",
 				Quantity:   orderDB.Order.Quantity,
-				Side:       getReverseOrderSide(orderDB.Order.Side),
-				LimitPrice: convert5Decimals(req.StopLoss),
+				Side:       utils.GetReverseOrderSide(orderDB.Order.Side),
+				LimitPrice: utils.Convert5Decimals(req.StopLoss),
 				Instrument: orderDB.Order.Instrument,
 				OcoGroup:   orderDB.Order.OcoGroup,
 				AccountID:  orderDB.Order.AccountId,
@@ -250,13 +200,13 @@ func (a api) modifyOrder(c echo.Context) error {
 					"error": err.Error(),
 				})
 			}
-			orderDB.StopLoss = convertExOrderToDB(orders[0])
+			orderDB.StopLoss = utils.ConvertExOrderToDB(orders[0])
 		} else {
 			a.exApi.ReplaceOrder(orderID, exante.ReplaceOrderPayload{
 				Action: "replace",
 				Parameters: exante.ReplaceOrderParameters{
 					Quantity:   orderDB.Order.Quantity,
-					LimitPrice: convert5Decimals(req.StopLoss),
+					LimitPrice: utils.Convert5Decimals(req.StopLoss),
 				},
 			})
 		}
@@ -269,8 +219,8 @@ func (a api) modifyOrder(c echo.Context) error {
 				Duration:   orderDB.Order.Duration,
 				OrderType:  "limit",
 				Quantity:   orderDB.Order.Quantity,
-				Side:       getReverseOrderSide(orderDB.Order.Side),
-				LimitPrice: convert5Decimals(req.TakeProfit),
+				Side:       utils.GetReverseOrderSide(orderDB.Order.Side),
+				LimitPrice: utils.Convert5Decimals(req.TakeProfit),
 				Instrument: orderDB.Order.Instrument,
 				OcoGroup:   orderDB.Order.OcoGroup,
 				AccountID:  orderDB.Order.AccountId,
@@ -280,13 +230,13 @@ func (a api) modifyOrder(c echo.Context) error {
 					"error": err.Error(),
 				})
 			}
-			orderDB.StopLoss = convertExOrderToDB(orders[0])
+			orderDB.StopLoss = utils.ConvertExOrderToDB(orders[0])
 		} else {
 			a.exApi.ReplaceOrder(orderID, exante.ReplaceOrderPayload{
 				Action: "replace",
 				Parameters: exante.ReplaceOrderParameters{
 					Quantity:   orderDB.Order.Quantity,
-					LimitPrice: convert5Decimals(req.TakeProfit),
+					LimitPrice: utils.Convert5Decimals(req.TakeProfit),
 				},
 			})
 		}
@@ -298,7 +248,7 @@ func (a api) modifyOrder(c echo.Context) error {
 
 func floatToString(k float64) *string {
 	if k > 0 {
-		valS := convert5Decimals(k)
+		valS := utils.Convert5Decimals(k)
 		return &valS
 	}
 	return nil
@@ -314,7 +264,9 @@ func (a api) cancelOrder(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	orderDB, hasOrder := a.orderState.get(c.Param("orderID"))
+	orderId := c.Param("orderID")
+
+	orderDB, hasOrder := a.orderState.Get(orderId)
 	if !hasOrder {
 		return c.JSON(http.StatusBadRequest, echo.Map{
 			"error": fmt.Errorf("no active order found"),
@@ -327,6 +279,8 @@ func (a api) cancelOrder(c echo.Context) error {
 			"error": err.Error(),
 		})
 	}
+
+	a.orderState.Delete(orderId)
 
 	return c.JSON(http.StatusOK, echo.Map{})
 }
@@ -341,7 +295,9 @@ func (a api) closePosition(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	orderDB, hasOrder := a.orderState.get(c.Param("orderID"))
+	orderId := c.Param("orderID")
+
+	orderDB, hasOrder := a.orderState.Get(orderId)
 	if !hasOrder {
 		return c.JSON(http.StatusBadRequest, echo.Map{
 			"error": fmt.Errorf("no active order found"),
@@ -351,7 +307,7 @@ func (a api) closePosition(c echo.Context) error {
 	_, err := a.exApi.PlaceOrderV3(&exante.OrderSentTypeV3{
 		AccountID:  orderDB.Order.AccountId,
 		Instrument: orderDB.Order.Symbol,
-		Side:       getReverseOrderSide(orderDB.Order.Side),
+		Side:       utils.GetReverseOrderSide(orderDB.Order.Side),
 		Quantity:   orderDB.Order.Quantity,
 		Duration:   "day",
 		OrderType:  "market",
@@ -362,6 +318,8 @@ func (a api) closePosition(c echo.Context) error {
 			"error": err.Error(),
 		})
 	}
+
+	a.orderState.Delete(orderId)
 
 	return c.JSON(http.StatusOK, echo.Map{})
 }
@@ -379,56 +337,4 @@ func (a api) getOrders(c echo.Context) error {
 
 type takeProfitRequest struct {
 	LimitPrice float64 `json:"limitPrice"`
-}
-
-func getReverseOrderSide(side string) string {
-	if side == "buy" {
-		return "sell"
-	}
-	return "buy"
-}
-func getParentOrder(orders []exante.OrderV3) (*exante.OrderV3, bool) {
-	for _, order := range orders {
-		if len(order.OrderParameters.OcoGroup) == 0 {
-			return &order, true
-		}
-	}
-
-	return nil, false
-}
-func getTakeProfitOrder(orders []exante.OrderV3) (*exante.OrderV3, bool) {
-	for _, order := range orders {
-		if len(order.OrderParameters.OcoGroup) > 0 && order.OrderParameters.OrderType == "limit" {
-			return &order, true
-		}
-	}
-
-	return nil, false
-}
-
-func getStopLossOrder(orders []exante.OrderV3) (*exante.OrderV3, bool) {
-	for _, order := range orders {
-		if len(order.OrderParameters.OcoGroup) > 0 && order.OrderParameters.OrderType != "limit" {
-			return &order, true
-		}
-	}
-
-	return nil, false
-}
-
-func convert5Decimals(k float64) string {
-	return fmt.Sprintf("%.5f", k)
-}
-
-func convertExOrderToDB(v3 exante.OrderV3) *orderDB {
-	return &orderDB{
-		ID:         v3.OrderID,
-		Quantity:   v3.OrderParameters.Quantity,
-		OcoGroup:   v3.OrderParameters.OcoGroup,
-		Side:       v3.OrderParameters.Side,
-		Duration:   v3.OrderParameters.Duration,
-		AccountId:  v3.AccountID,
-		Symbol:     v3.OrderParameters.SymbolId,
-		Instrument: v3.OrderParameters.Instrument,
-	}
 }

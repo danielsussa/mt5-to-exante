@@ -1,0 +1,8 @@
+description: "Local Exchanges to avoid conversions and further calls to Exante API"
+exchanges:
+  - metaTrader: "EURUSD"
+    exante: "EUR/USD.E.FX"
+    mti: 0.00001
+  - metaTrader: "BCHUSD"
+    exante: "BCH.USD"
+    mti: 0.00001

@@ -5,15 +5,20 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
 	"mt-to-exante/internal/exante"
+	"mt-to-exante/internal/exchanges"
 	"mt-to-exante/internal/orderdb"
 	"mt-to-exante/internal/utils"
 	"net/http"
 	"os"
-	"strings"
 )
 
 func main() {
 	err := godotenv.Load(fmt.Sprintf("%s.env", os.Args[1]))
+	if err != nil {
+		panic(err)
+	}
+
+	exchangeApi, err := exchanges.New(os.Getenv("EXCHANGE_PATH"))
 	if err != nil {
 		panic(err)
 	}
@@ -25,7 +30,8 @@ func main() {
 			os.Getenv("CLIENT_ID"),
 			os.Getenv("SHARED_KEY"),
 		),
-		orderState: orderdb.New(),
+		orderState:  orderdb.New(),
+		exchangeApi: exchangeApi,
 	}
 
 	e := echo.New()
@@ -47,8 +53,9 @@ func main() {
 }
 
 type api struct {
-	exApi      *exante.Api
-	orderState *orderdb.OrderState
+	exApi       *exante.Api
+	orderState  *orderdb.OrderState
+	exchangeApi *exchanges.Api
 }
 
 func (a api) getJwt(c echo.Context) error {
@@ -77,25 +84,13 @@ type placeOrderRequest struct {
 	StopLoss   float64 `json:"stopLoss"`
 }
 
-func convertToSymbolInstrument(s string) (string, string, bool) {
-	if len(s) != 6 {
-		return "", "", false
-	}
-
-	if strings.Contains(s, "BCH") {
-		return fmt.Sprintf("%s.%s", s[0:3], s[3:]), fmt.Sprintf("%s/%s", s[0:3], s[3:]), true
-	}
-
-	return fmt.Sprintf("%s/%s.E.FX", s[0:3], s[3:]), fmt.Sprintf("%s/%s", s[0:3], s[3:]), true
-}
-
 func (a api) placeOrder(c echo.Context) error {
 	req := new(placeOrderRequest)
 	if err := c.Bind(req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	symbol, instrument, has := convertToSymbolInstrument(req.SymbolID)
+	exchange, has := a.exchangeApi.GetByMTValue(req.SymbolID)
 	if !has {
 		return c.JSON(http.StatusBadRequest, echo.Map{
 			"error": "symbol not found",
@@ -112,13 +107,13 @@ func (a api) placeOrder(c echo.Context) error {
 
 	// no active order
 	orders, err := a.exApi.PlaceOrderV3(&exante.OrderSentTypeV3{
-		SymbolID:   symbol,
+		SymbolID:   exchange.Exante,
 		Duration:   req.Duration,
 		OrderType:  req.OrderType,
 		Quantity:   utils.Convert5Decimals(req.Quantity),
 		Side:       req.Side,
 		LimitPrice: utils.Convert5Decimals(req.LimitPrice),
-		Instrument: instrument,
+		Instrument: exchange.Exante,
 		StopLoss:   utils.Convert5DecimalsOrNil(req.StopLoss),
 		TakeProfit: utils.Convert5DecimalsOrNil(req.TakeProfit),
 

@@ -28,3 +28,18 @@ To the SDK works is necessary to have your OWN personal API Key, this SDK is onl
 4. allow MT5 to call external services:
 ![image](src/mt5-url.PNG)
 5. Add Expert to target chart
+
+# Folder structure
+
+```shell
+├── mt-to-exante
+   └── mt-to-exante-sdk.exe
+   └── developer.env
+   └── production.env
+   └── exchanges.yaml
+├── .../MQL4
+   └── Includes
+      └── JAson.mqh
+   └── Experts
+      └── mt-to-exante.mq4
+```

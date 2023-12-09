@@ -43,3 +43,10 @@ To the SDK works is necessary to have your OWN personal API Key, this SDK is onl
    └── Experts
       └── mt-to-exante.mq4
 ```
+
+# Run SDK on Windows Startup
+
+To run the SDK on windows bootstrap use the WINDOWS TASK MANAGER to add it. Follow the steps bellow:
+![image](src/task-manager-1.PNG)
+![image](src/task-manager-2.PNG)
+![image](src/task-manager-3.PNG)

@@ -10,15 +10,19 @@ import (
 	"mt-to-exante/internal/utils"
 	"net/http"
 	"os"
+	"path/filepath"
 )
 
 func main() {
-	err := godotenv.Load(fmt.Sprintf("%s.env", os.Args[1]))
+	ex, _ := os.Executable()
+	exPath := filepath.Dir(ex)
+
+	err := godotenv.Load(fmt.Sprintf("%s/%s.env", exPath, os.Args[1]))
 	if err != nil {
-		panic(err)
+		panic("cannot locate environment file")
 	}
 
-	exchangeApi, err := exchanges.New(os.Getenv("EXCHANGE_PATH"))
+	exchangeApi, err := exchanges.New(fmt.Sprintf("%s/%s", exPath, os.Getenv("EXCHANGE_PATH")))
 	if err != nil {
 		panic(err)
 	}

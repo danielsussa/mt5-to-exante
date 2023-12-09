@@ -2,6 +2,7 @@ package orderdb
 
 import (
 	"encoding/json"
+	"github.com/google/uuid"
 	"github.com/peterbourgon/diskv/v3"
 )
 
@@ -11,6 +12,7 @@ type OrderState struct {
 
 type OrderGroup struct {
 	Order      OrderDB
+	OcoGroup   string
 	StopLoss   *OrderDB
 	TakeProfit *OrderDB
 }
@@ -18,12 +20,17 @@ type OrderGroup struct {
 type OrderDB struct {
 	ID         string
 	Quantity   string
-	OcoGroup   string
 	Side       string
 	Duration   string
 	AccountId  string
 	Symbol     string
 	Instrument string
+}
+
+func NewOrderGroup() OrderGroup {
+	return OrderGroup{
+		OcoGroup: uuid.NewString(),
+	}
 }
 
 func New() *OrderState {

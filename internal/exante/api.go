@@ -175,6 +175,7 @@ type OrderSentTypeV3 struct {
 	OrderType      string  `json:"orderType"`
 	TakeProfit     *string `json:"takeProfit,omitempty"`
 	StopLoss       *string `json:"stopLoss,omitempty"`
+	StopPrice      *string `json:"stopPrice,omitempty"`
 	SymbolID       string  `json:"symbolId"`
 }
 
@@ -206,85 +207,6 @@ func (a Api) PlaceOrderV3(req *OrderSentTypeV3) ([]OrderV3, error) {
 	}
 
 	return result, nil
-}
-
-func (a Api) GetActiveOrdersByID(orderID string) ([]OrderV3, error) {
-	orders, err := a.GetActiveOrdersV3()
-	if err != nil {
-		return nil, err
-	}
-
-	orders, _ = getActiveOrdersByID(orders, orderID)
-	return orders, nil
-}
-
-func (a Api) GetOrdersByID(orderID string) ([]OrderV3, error) {
-	orders, err := a.GetOrdersV3()
-	if err != nil {
-		return nil, err
-	}
-
-	orders, _ = getOrdersByID(orders, orderID)
-	return orders, nil
-}
-
-func (a Api) GetFilledOrderByID(orderID string) (OrderV3, bool, error) {
-	orders, err := a.GetOrdersV3()
-	if err != nil {
-		return OrderV3{}, false, err
-	}
-
-	order, hasOrder := getActiveOrderByID(orders, orderID)
-	if order.OrderState.Status == "filled" {
-		return order, hasOrder, nil
-	}
-	return order, false, nil
-}
-
-func (a Api) GetActiveOrderByID(orderID string) (OrderV3, bool, error) {
-	orders, err := a.GetActiveOrdersV3()
-	if err != nil {
-		return OrderV3{}, false, err
-	}
-
-	order, hasOrder := getActiveOrderByID(orders, orderID)
-	return order, hasOrder, nil
-}
-
-func getActiveOrderByID(orders []OrderV3, orderID string) (OrderV3, bool) {
-	for _, order := range orders {
-		if order.ClientTag == orderID {
-			return order, true
-		}
-	}
-
-	return OrderV3{}, false
-}
-
-func getActiveOrdersByID(orders []OrderV3, orderID string) ([]OrderV3, bool) {
-	newOrdersList := make([]OrderV3, 0)
-	hasActiveOrders := false
-	for _, order := range orders {
-		if order.ClientTag == orderID {
-			newOrdersList = append(newOrdersList, order)
-			hasActiveOrders = true
-		}
-	}
-
-	return newOrdersList, hasActiveOrders
-}
-
-func getOrdersByID(orders []OrderV3, orderID string) ([]OrderV3, bool) {
-	newOrdersList := make([]OrderV3, 0)
-	hasActiveOrders := false
-	for _, order := range orders {
-		if order.ClientTag == orderID {
-			newOrdersList = append(newOrdersList, order)
-			hasActiveOrders = true
-		}
-	}
-
-	return newOrdersList, hasActiveOrders
 }
 
 // OrderV3 model
@@ -364,16 +286,16 @@ func (a Api) GetActiveOrdersV3() (OrdersV3, error) {
 	return result, nil
 }
 
-func (a Api) GetOrdersV3() (OrdersV3, error) {
+func (a Api) GetOrder(orderID string) (*OrderV3, error) {
 
-	var result OrdersV3
+	var result OrderV3
 	var errRes []ErrorResponse
 
 	resp, err := a.cli.R().
 		SetResult(&result).
 		SetError(&errRes).
 		SetHeader("Authorization", a.Bearer()).
-		Get(fmt.Sprintf("%s/trade/3.0/orders", a.BaseURL))
+		Get(fmt.Sprintf("%s/trade/3.0/orders/%s", a.BaseURL, orderID))
 
 	if err != nil {
 		return nil, err
@@ -390,7 +312,7 @@ func (a Api) GetOrdersV3() (OrdersV3, error) {
 		return nil, errRes[0]
 	}
 
-	return result, nil
+	return &result, nil
 }
 
 func (a Api) ReplaceOrder(orderID string, req ReplaceOrderPayload) (*ReplaceOrderResponse, error) {

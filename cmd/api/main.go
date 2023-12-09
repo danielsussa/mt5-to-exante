@@ -9,6 +9,7 @@ import (
 	"mt-to-exante/internal/utils"
 	"net/http"
 	"os"
+	"strings"
 )
 
 func main() {
@@ -36,12 +37,12 @@ func main() {
 
 	e.GET("/jwt", h.getJwt)
 	e.GET("/accounts", h.getAccounts)
-	e.POST("/v3/orders", h.getOrders)
+	e.GET("/v3/orders", h.getOrders)
+	e.GET("/v3/orders/:orderID", h.getOrder)
 	e.POST("/v3/orders/:orderID/place", h.placeOrder)
 	e.POST("/v3/orders/:orderID/modify", h.modifyOrder)
 	e.POST("/v3/orders/:orderID/cancel", h.cancelOrder)
 	e.POST("/v3/positions/:orderID/close", h.closePosition)
-	//e.POST("/v3/orders/:orderID/replace", h.replaceOrder)
 	e.Logger.Fatal(e.Start(":1323"))
 }
 
@@ -81,6 +82,10 @@ func convertToSymbolInstrument(s string) (string, string, bool) {
 		return "", "", false
 	}
 
+	if strings.Contains(s, "BCH") {
+		return fmt.Sprintf("%s.%s", s[0:3], s[3:]), fmt.Sprintf("%s/%s", s[0:3], s[3:]), true
+	}
+
 	return fmt.Sprintf("%s/%s.E.FX", s[0:3], s[3:]), fmt.Sprintf("%s/%s", s[0:3], s[3:]), true
 }
 
@@ -114,8 +119,8 @@ func (a api) placeOrder(c echo.Context) error {
 		Side:       req.Side,
 		LimitPrice: utils.Convert5Decimals(req.LimitPrice),
 		Instrument: instrument,
-		StopLoss:   floatToString(req.StopLoss),
-		TakeProfit: floatToString(req.TakeProfit),
+		StopLoss:   utils.Convert5DecimalsOrNil(req.StopLoss),
+		TakeProfit: utils.Convert5DecimalsOrNil(req.TakeProfit),
 
 		AccountID: req.AccountId,
 		ClientTag: c.Param("orderID"),
@@ -131,6 +136,8 @@ func (a api) placeOrder(c echo.Context) error {
 			"error": "no order registered",
 		})
 	}
+
+	orderDB = orderdb.NewOrderGroup()
 
 	parentOrder, has := utils.GetParentOrder(orders)
 	if has {
@@ -149,7 +156,7 @@ func (a api) placeOrder(c echo.Context) error {
 
 	a.orderState.Upsert(orderID, orderDB)
 
-	return c.JSON(http.StatusOK, orders)
+	return c.JSON(http.StatusOK, "ok")
 
 }
 
@@ -174,7 +181,7 @@ func (a api) modifyOrder(c echo.Context) error {
 		})
 	}
 
-	a.exApi.ReplaceOrder(orderID, exante.ReplaceOrderPayload{
+	_, _ = a.exApi.ReplaceOrder(orderDB.Order.ID, exante.ReplaceOrderPayload{
 		Action: "replace",
 		Parameters: exante.ReplaceOrderParameters{
 			Quantity:   orderDB.Order.Quantity,
@@ -182,27 +189,42 @@ func (a api) modifyOrder(c echo.Context) error {
 		},
 	})
 
+	// cancel stop loss order
+	if req.StopLoss == 0 && orderDB.StopLoss != nil {
+		err := a.exApi.CancelOrder(orderDB.StopLoss.ID)
+		if err == nil {
+			orderDB.StopLoss = nil
+		}
+	}
+
+	// cancel take profit order
+	if req.TakeProfit == 0 && orderDB.TakeProfit != nil {
+		err := a.exApi.CancelOrder(orderDB.TakeProfit.ID)
+		if err == nil {
+			orderDB.TakeProfit = nil
+		}
+	}
+
 	if req.StopLoss > 0 {
 		if orderDB.StopLoss == nil {
 			orders, err := a.exApi.PlaceOrderV3(&exante.OrderSentTypeV3{
-				SymbolID:   orderDB.Order.Symbol,
-				Duration:   orderDB.Order.Duration,
-				OrderType:  "stop",
-				Quantity:   orderDB.Order.Quantity,
-				Side:       utils.GetReverseOrderSide(orderDB.Order.Side),
-				LimitPrice: utils.Convert5Decimals(req.StopLoss),
-				Instrument: orderDB.Order.Instrument,
-				OcoGroup:   orderDB.Order.OcoGroup,
-				AccountID:  orderDB.Order.AccountId,
+				SymbolID:       orderDB.Order.Symbol,
+				Duration:       orderDB.Order.Duration,
+				OrderType:      "stop",
+				Quantity:       orderDB.Order.Quantity,
+				Side:           utils.GetReverseOrderSide(orderDB.Order.Side),
+				StopPrice:      utils.Convert5DecimalsOrNil(req.StopLoss),
+				IfDoneParentID: orderDB.Order.ID,
+				Instrument:     orderDB.Order.Symbol,
+				OcoGroup:       orderDB.OcoGroup,
+				AccountID:      orderDB.Order.AccountId,
 			})
-			if err != nil {
-				return c.JSON(http.StatusBadRequest, echo.Map{
-					"error": err.Error(),
-				})
+			if err == nil {
+				orderDB.StopLoss = utils.ConvertExOrderToDB(orders[0])
 			}
-			orderDB.StopLoss = utils.ConvertExOrderToDB(orders[0])
+
 		} else {
-			a.exApi.ReplaceOrder(orderID, exante.ReplaceOrderPayload{
+			_, _ = a.exApi.ReplaceOrder(orderDB.StopLoss.ID, exante.ReplaceOrderPayload{
 				Action: "replace",
 				Parameters: exante.ReplaceOrderParameters{
 					Quantity:   orderDB.Order.Quantity,
@@ -215,24 +237,22 @@ func (a api) modifyOrder(c echo.Context) error {
 	if req.TakeProfit > 0 {
 		if orderDB.TakeProfit == nil {
 			orders, err := a.exApi.PlaceOrderV3(&exante.OrderSentTypeV3{
-				SymbolID:   orderDB.Order.Symbol,
-				Duration:   orderDB.Order.Duration,
-				OrderType:  "limit",
-				Quantity:   orderDB.Order.Quantity,
-				Side:       utils.GetReverseOrderSide(orderDB.Order.Side),
-				LimitPrice: utils.Convert5Decimals(req.TakeProfit),
-				Instrument: orderDB.Order.Instrument,
-				OcoGroup:   orderDB.Order.OcoGroup,
-				AccountID:  orderDB.Order.AccountId,
+				SymbolID:       orderDB.Order.Symbol,
+				Duration:       orderDB.Order.Duration,
+				OrderType:      "limit",
+				Quantity:       orderDB.Order.Quantity,
+				Side:           utils.GetReverseOrderSide(orderDB.Order.Side),
+				LimitPrice:     utils.Convert5Decimals(req.TakeProfit),
+				Instrument:     orderDB.Order.Symbol,
+				OcoGroup:       orderDB.OcoGroup,
+				IfDoneParentID: orderDB.Order.ID,
+				AccountID:      orderDB.Order.AccountId,
 			})
-			if err != nil {
-				return c.JSON(http.StatusBadRequest, echo.Map{
-					"error": err.Error(),
-				})
+			if err == nil {
+				orderDB.TakeProfit = utils.ConvertExOrderToDB(orders[0])
 			}
-			orderDB.StopLoss = utils.ConvertExOrderToDB(orders[0])
 		} else {
-			a.exApi.ReplaceOrder(orderID, exante.ReplaceOrderPayload{
+			_, _ = a.exApi.ReplaceOrder(orderDB.TakeProfit.ID, exante.ReplaceOrderPayload{
 				Action: "replace",
 				Parameters: exante.ReplaceOrderParameters{
 					Quantity:   orderDB.Order.Quantity,
@@ -242,20 +262,13 @@ func (a api) modifyOrder(c echo.Context) error {
 		}
 	}
 
-	return c.JSON(http.StatusOK, echo.Map{})
+	a.orderState.Upsert(orderID, orderDB)
 
-}
+	return c.JSON(http.StatusOK, "ok")
 
-func floatToString(k float64) *string {
-	if k > 0 {
-		valS := utils.Convert5Decimals(k)
-		return &valS
-	}
-	return nil
 }
 
 type cancelOrderRequest struct {
-	exante.Api
 }
 
 func (a api) cancelOrder(c echo.Context) error {
@@ -269,7 +282,7 @@ func (a api) cancelOrder(c echo.Context) error {
 	orderDB, hasOrder := a.orderState.Get(orderId)
 	if !hasOrder {
 		return c.JSON(http.StatusBadRequest, echo.Map{
-			"error": fmt.Errorf("no active order found"),
+			"error": "no active order found",
 		})
 	}
 
@@ -282,11 +295,10 @@ func (a api) cancelOrder(c echo.Context) error {
 
 	a.orderState.Delete(orderId)
 
-	return c.JSON(http.StatusOK, echo.Map{})
+	return c.JSON(http.StatusOK, "ok")
 }
 
 type closePositionRequest struct {
-	exante.Api
 }
 
 func (a api) closePosition(c echo.Context) error {
@@ -300,7 +312,7 @@ func (a api) closePosition(c echo.Context) error {
 	orderDB, hasOrder := a.orderState.Get(orderId)
 	if !hasOrder {
 		return c.JSON(http.StatusBadRequest, echo.Map{
-			"error": fmt.Errorf("no active order found"),
+			"error": "no active order found",
 		})
 	}
 
@@ -309,7 +321,8 @@ func (a api) closePosition(c echo.Context) error {
 		Instrument: orderDB.Order.Symbol,
 		Side:       utils.GetReverseOrderSide(orderDB.Order.Side),
 		Quantity:   orderDB.Order.Quantity,
-		Duration:   "day",
+		OcoGroup:   orderDB.OcoGroup,
+		Duration:   "good_till_cancel",
 		OrderType:  "market",
 		SymbolID:   orderDB.Order.Symbol,
 	})
@@ -321,7 +334,25 @@ func (a api) closePosition(c echo.Context) error {
 
 	a.orderState.Delete(orderId)
 
-	return c.JSON(http.StatusOK, echo.Map{})
+	return c.JSON(http.StatusOK, "ok")
+}
+
+func (a api) getOrder(c echo.Context) error {
+	orderDB, hasOrder := a.orderState.Get(c.Param("orderID"))
+	if !hasOrder {
+		return c.JSON(http.StatusBadRequest, echo.Map{
+			"error": "no active order found",
+		})
+	}
+
+	order, err := a.exApi.GetOrder(orderDB.Order.ID)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, echo.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(http.StatusOK, order)
 }
 
 func (a api) getOrders(c echo.Context) error {
@@ -333,8 +364,4 @@ func (a api) getOrders(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, orders)
-}
-
-type takeProfitRequest struct {
-	LimitPrice float64 `json:"limitPrice"`
 }

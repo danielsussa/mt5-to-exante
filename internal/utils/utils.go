@@ -14,7 +14,6 @@ func ConvertExOrderToDB(v3 exante.OrderV3) *orderdb.OrderDB {
 	return &orderdb.OrderDB{
 		ID:         v3.OrderID,
 		Quantity:   v3.OrderParameters.Quantity,
-		OcoGroup:   v3.OrderParameters.OcoGroup,
 		Side:       v3.OrderParameters.Side,
 		Duration:   v3.OrderParameters.Duration,
 		AccountId:  v3.AccountID,
@@ -56,4 +55,12 @@ func GetStopLossOrder(orders []exante.OrderV3) (*exante.OrderV3, bool) {
 	}
 
 	return nil, false
+}
+
+func Convert5DecimalsOrNil(k float64) *string {
+	if k > 0 {
+		valS := Convert5Decimals(k)
+		return &valS
+	}
+	return nil
 }

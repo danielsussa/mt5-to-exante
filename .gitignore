@@ -1,4 +1,5 @@
 .idea
-*.env
+dev.env
+prod.env
 bin
 .tmp

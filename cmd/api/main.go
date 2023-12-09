@@ -6,7 +6,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
 	"github.com/peterbourgon/diskv/v3"
-	httplib "mt-to-exante/internal/exante"
+	"mt-to-exante/internal/exante"
 	"net/http"
 	"os"
 )
@@ -18,7 +18,7 @@ func main() {
 	}
 
 	h := api{
-		exApi: httplib.NewApi(
+		exApi: exante.NewApi(
 			os.Getenv("BASE_URL"),
 			os.Getenv("APPLICATION_ID"),
 			os.Getenv("CLIENT_ID"),
@@ -46,20 +46,20 @@ func main() {
 }
 
 type api struct {
-	exApi      *httplib.Api
-	orderState orderState
+	exApi      *exante.Api
+	orderState *orderState
 }
 
 type orderState struct {
 	d *diskv.Diskv
 }
 
-func (os orderState) upsert(ticketID string, order orderGroup) {
+func (os *orderState) upsert(ticketID string, order orderGroup) {
 	b, _ := json.Marshal(order)
 	_ = os.d.Write(ticketID, b)
 }
 
-func (os orderState) get(ticketID string) (orderGroup, bool) {
+func (os *orderState) get(ticketID string) (orderGroup, bool) {
 	if !os.d.Has(ticketID) {
 		return orderGroup{}, false
 	}
@@ -73,14 +73,14 @@ func (os orderState) get(ticketID string) (orderGroup, bool) {
 	return order, true
 }
 
-func startOrderState() orderState {
+func startOrderState() *orderState {
 	d := diskv.New(diskv.Options{
 		BasePath:     "orders",
 		Transform:    func(s string) []string { return []string{} },
 		CacheSizeMax: 1024 * 1024,
 	})
 
-	return orderState{d: d}
+	return &orderState{d: d}
 }
 
 type orderGroup struct {
@@ -101,7 +101,7 @@ type orderDB struct {
 }
 
 func (a api) getJwt(c echo.Context) error {
-	return c.JSON(http.StatusOK, a.exApi.GetJwt())
+	return c.JSON(http.StatusOK, a.exApi.Jwt())
 }
 func (a api) getAccounts(c echo.Context) error {
 	accounts, err := a.exApi.GetUserAccounts()
@@ -156,7 +156,7 @@ func (a api) placeOrder(c echo.Context) error {
 	}
 
 	// no active order
-	orders, err := a.exApi.PlaceOrderV3(&httplib.OrderSentTypeV3{
+	orders, err := a.exApi.PlaceOrderV3(&exante.OrderSentTypeV3{
 		SymbolID:   symbol,
 		Duration:   req.Duration,
 		OrderType:  req.OrderType,
@@ -224,9 +224,9 @@ func (a api) modifyOrder(c echo.Context) error {
 		})
 	}
 
-	a.exApi.ReplaceOrder(orderID, httplib.ReplaceOrderPayload{
+	a.exApi.ReplaceOrder(orderID, exante.ReplaceOrderPayload{
 		Action: "replace",
-		Parameters: httplib.ReplaceOrderParameters{
+		Parameters: exante.ReplaceOrderParameters{
 			Quantity:   orderDB.Order.Quantity,
 			LimitPrice: convert5Decimals(req.LimitPrice),
 		},
@@ -234,7 +234,7 @@ func (a api) modifyOrder(c echo.Context) error {
 
 	if req.StopLoss > 0 {
 		if orderDB.StopLoss == nil {
-			orders, err := a.exApi.PlaceOrderV3(&httplib.OrderSentTypeV3{
+			orders, err := a.exApi.PlaceOrderV3(&exante.OrderSentTypeV3{
 				SymbolID:   orderDB.Order.Symbol,
 				Duration:   orderDB.Order.Duration,
 				OrderType:  "stop",
@@ -252,9 +252,9 @@ func (a api) modifyOrder(c echo.Context) error {
 			}
 			orderDB.StopLoss = convertExOrderToDB(orders[0])
 		} else {
-			a.exApi.ReplaceOrder(orderID, httplib.ReplaceOrderPayload{
+			a.exApi.ReplaceOrder(orderID, exante.ReplaceOrderPayload{
 				Action: "replace",
-				Parameters: httplib.ReplaceOrderParameters{
+				Parameters: exante.ReplaceOrderParameters{
 					Quantity:   orderDB.Order.Quantity,
 					LimitPrice: convert5Decimals(req.StopLoss),
 				},
@@ -264,7 +264,7 @@ func (a api) modifyOrder(c echo.Context) error {
 
 	if req.TakeProfit > 0 {
 		if orderDB.TakeProfit == nil {
-			orders, err := a.exApi.PlaceOrderV3(&httplib.OrderSentTypeV3{
+			orders, err := a.exApi.PlaceOrderV3(&exante.OrderSentTypeV3{
 				SymbolID:   orderDB.Order.Symbol,
 				Duration:   orderDB.Order.Duration,
 				OrderType:  "limit",
@@ -282,9 +282,9 @@ func (a api) modifyOrder(c echo.Context) error {
 			}
 			orderDB.StopLoss = convertExOrderToDB(orders[0])
 		} else {
-			a.exApi.ReplaceOrder(orderID, httplib.ReplaceOrderPayload{
+			a.exApi.ReplaceOrder(orderID, exante.ReplaceOrderPayload{
 				Action: "replace",
-				Parameters: httplib.ReplaceOrderParameters{
+				Parameters: exante.ReplaceOrderParameters{
 					Quantity:   orderDB.Order.Quantity,
 					LimitPrice: convert5Decimals(req.TakeProfit),
 				},
@@ -305,7 +305,7 @@ func floatToString(k float64) *string {
 }
 
 type cancelOrderRequest struct {
-	httplib.Api
+	exante.Api
 }
 
 func (a api) cancelOrder(c echo.Context) error {
@@ -332,7 +332,7 @@ func (a api) cancelOrder(c echo.Context) error {
 }
 
 type closePositionRequest struct {
-	httplib.Api
+	exante.Api
 }
 
 func (a api) closePosition(c echo.Context) error {
@@ -348,7 +348,7 @@ func (a api) closePosition(c echo.Context) error {
 		})
 	}
 
-	_, err := a.exApi.PlaceOrderV3(&httplib.OrderSentTypeV3{
+	_, err := a.exApi.PlaceOrderV3(&exante.OrderSentTypeV3{
 		AccountID:  orderDB.Order.AccountId,
 		Instrument: orderDB.Order.Symbol,
 		Side:       getReverseOrderSide(orderDB.Order.Side),
@@ -387,7 +387,7 @@ func getReverseOrderSide(side string) string {
 	}
 	return "buy"
 }
-func getParentOrder(orders []httplib.OrderV3) (*httplib.OrderV3, bool) {
+func getParentOrder(orders []exante.OrderV3) (*exante.OrderV3, bool) {
 	for _, order := range orders {
 		if len(order.OrderParameters.OcoGroup) == 0 {
 			return &order, true
@@ -396,7 +396,7 @@ func getParentOrder(orders []httplib.OrderV3) (*httplib.OrderV3, bool) {
 
 	return nil, false
 }
-func getTakeProfitOrder(orders []httplib.OrderV3) (*httplib.OrderV3, bool) {
+func getTakeProfitOrder(orders []exante.OrderV3) (*exante.OrderV3, bool) {
 	for _, order := range orders {
 		if len(order.OrderParameters.OcoGroup) > 0 && order.OrderParameters.OrderType == "limit" {
 			return &order, true
@@ -406,7 +406,7 @@ func getTakeProfitOrder(orders []httplib.OrderV3) (*httplib.OrderV3, bool) {
 	return nil, false
 }
 
-func getStopLossOrder(orders []httplib.OrderV3) (*httplib.OrderV3, bool) {
+func getStopLossOrder(orders []exante.OrderV3) (*exante.OrderV3, bool) {
 	for _, order := range orders {
 		if len(order.OrderParameters.OcoGroup) > 0 && order.OrderParameters.OrderType != "limit" {
 			return &order, true
@@ -420,7 +420,7 @@ func convert5Decimals(k float64) string {
 	return fmt.Sprintf("%.5f", k)
 }
 
-func convertExOrderToDB(v3 httplib.OrderV3) *orderDB {
+func convertExOrderToDB(v3 exante.OrderV3) *orderDB {
 	return &orderDB{
 		ID:         v3.OrderID,
 		Quantity:   v3.OrderParameters.Quantity,

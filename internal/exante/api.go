@@ -1,4 +1,4 @@
-package httplib
+package exante
 
 import (
 	"errors"
@@ -80,7 +80,7 @@ var Scopes = []string{
 	"accounts",
 }
 
-func (a *Api) Jwt() string {
+func (a Api) Jwt() string {
 	token, err := jwt.Parse(a.jwt, func(token *jwt.Token) (interface{}, error) {
 		return []byte(a.SharedKey), nil
 	})
@@ -108,7 +108,7 @@ func (a *Api) Jwt() string {
 	return tokenString
 }
 
-func (a *Api) Bearer() string {
+func (a Api) Bearer() string {
 	return fmt.Sprintf("Bearer %s", a.Jwt())
 }
 
@@ -130,7 +130,7 @@ type CancelOrderPayload struct {
 }
 
 // CancelOrder cancel trading order
-func (a *Api) CancelOrder(orderID string) error {
+func (a Api) CancelOrder(orderID string) error {
 	var errRes []ErrorResponse
 
 	url := fmt.Sprintf("%s/trade/3.0/orders/%s", a.BaseURL, orderID)
@@ -162,7 +162,23 @@ func (a *Api) CancelOrder(orderID string) error {
 	return nil
 }
 
-func (a *Api) PlaceOrderV3(req *OrderSentTypeV3) ([]OrderV3, error) {
+type OrderSentTypeV3 struct {
+	AccountID      string  `json:"accountId"`
+	Instrument     string  `json:"instrument"`
+	Side           string  `json:"side"`
+	Quantity       string  `json:"quantity"`
+	Duration       string  `json:"duration"`
+	ClientTag      string  `json:"clientTag,omitempty"`
+	OcoGroup       string  `json:"ocoGroup,omitempty"`
+	LimitPrice     string  `json:"limitPrice,omitempty"`
+	IfDoneParentID string  `json:"ifDoneParentId,omitempty"`
+	OrderType      string  `json:"orderType"`
+	TakeProfit     *string `json:"takeProfit,omitempty"`
+	StopLoss       *string `json:"stopLoss,omitempty"`
+	SymbolID       string  `json:"symbolId"`
+}
+
+func (a Api) PlaceOrderV3(req *OrderSentTypeV3) ([]OrderV3, error) {
 
 	var result []OrderV3
 	var errRes []ErrorResponse
@@ -192,7 +208,7 @@ func (a *Api) PlaceOrderV3(req *OrderSentTypeV3) ([]OrderV3, error) {
 	return result, nil
 }
 
-func (a *Api) GetActiveOrdersByID(orderID string) ([]OrderV3, error) {
+func (a Api) GetActiveOrdersByID(orderID string) ([]OrderV3, error) {
 	orders, err := a.GetActiveOrdersV3()
 	if err != nil {
 		return nil, err
@@ -202,7 +218,7 @@ func (a *Api) GetActiveOrdersByID(orderID string) ([]OrderV3, error) {
 	return orders, nil
 }
 
-func (a *Api) GetOrdersByID(orderID string) ([]OrderV3, error) {
+func (a Api) GetOrdersByID(orderID string) ([]OrderV3, error) {
 	orders, err := a.GetOrdersV3()
 	if err != nil {
 		return nil, err
@@ -212,7 +228,7 @@ func (a *Api) GetOrdersByID(orderID string) ([]OrderV3, error) {
 	return orders, nil
 }
 
-func (a *Api) GetFilledOrderByID(orderID string) (OrderV3, bool, error) {
+func (a Api) GetFilledOrderByID(orderID string) (OrderV3, bool, error) {
 	orders, err := a.GetOrdersV3()
 	if err != nil {
 		return OrderV3{}, false, err
@@ -225,7 +241,7 @@ func (a *Api) GetFilledOrderByID(orderID string) (OrderV3, bool, error) {
 	return order, false, nil
 }
 
-func (a *Api) GetActiveOrderByID(orderID string) (OrderV3, bool, error) {
+func (a Api) GetActiveOrderByID(orderID string) (OrderV3, bool, error) {
 	orders, err := a.GetActiveOrdersV3()
 	if err != nil {
 		return OrderV3{}, false, err
@@ -271,8 +287,55 @@ func getOrdersByID(orders []OrderV3, orderID string) ([]OrderV3, bool) {
 	return newOrdersList, hasActiveOrders
 }
 
+// OrderV3 model
+type OrderV3 struct {
+	OrderState      OrderState      `json:"orderState"`
+	OrderParameters OrderParameters `json:"orderParameters"`
+
+	OrderID               string `json:"orderId"`
+	PlaceTime             string `json:"placeTime"`
+	AccountID             string `json:"accountId"`
+	ClientTag             string `json:"clientTag"`
+	CurrentModificationID string `json:"currentModificationId"`
+	ExanteAccount         string `json:"exanteAccount"`
+	Username              string `json:"username"`
+}
+
+type OrderParameters struct {
+	Side           string `json:"side"`
+	Duration       string `json:"duration"`
+	Quantity       string `json:"quantity"`
+	Instrument     string `json:"instrument"`
+	SymbolId       string `json:"symbolId"`
+	OrderType      string `json:"orderType"`
+	OcoGroup       string `json:"ocoGroup"`
+	IfDoneParentID string `json:"ifDoneParentId"`
+	LimitPrice     string `json:"limitPrice"`
+	StopPrice      string `json:"stopPrice"`
+	PriceDistance  string `json:"priceDistance"`
+	PartQuantity   string `json:"partQuantity"`
+	PlaceInterval  string `json:"placeInterval"`
+}
+
+type OrderState struct {
+	Fills []OrderFill `json:"fills"`
+
+	Status     string `json:"status"`
+	LastUpdate string `json:"lastUpdate"`
+}
+
+type OrderFill struct {
+	Quantity string `json:"quantity"`
+	Price    string `json:"price"`
+	Time     string `json:"timestamp"`
+	Position int    `json:"position"`
+}
+
+// OrdersV3 model
+type OrdersV3 []OrderV3
+
 // GetActiveOrdersV3 return the list of active trading orders
-func (a *Api) GetActiveOrdersV3() (OrdersV3, error) {
+func (a Api) GetActiveOrdersV3() (OrdersV3, error) {
 
 	var result OrdersV3
 	var errRes []ErrorResponse
@@ -301,7 +364,7 @@ func (a *Api) GetActiveOrdersV3() (OrdersV3, error) {
 	return result, nil
 }
 
-func (a *Api) GetOrdersV3() (OrdersV3, error) {
+func (a Api) GetOrdersV3() (OrdersV3, error) {
 
 	var result OrdersV3
 	var errRes []ErrorResponse
@@ -330,7 +393,7 @@ func (a *Api) GetOrdersV3() (OrdersV3, error) {
 	return result, nil
 }
 
-func (a *Api) ReplaceOrder(orderID string, req ReplaceOrderPayload) (*ReplaceOrderResponse, error) {
+func (a Api) ReplaceOrder(orderID string, req ReplaceOrderPayload) (*ReplaceOrderResponse, error) {
 
 	var result *ReplaceOrderResponse
 	var errRes []ErrorResponse
@@ -360,16 +423,14 @@ func (a *Api) ReplaceOrder(orderID string, req ReplaceOrderPayload) (*ReplaceOrd
 	return result, nil
 }
 
-func (a *Api) GetJwt() string {
-	return a.Jwt()
-}
-
 type UserAccount struct {
 	Status    string `json:"status"`
 	AccountID string `json:"accountId"`
 }
 
-func (a *Api) GetUserAccounts() (*UserAccounts, error) {
+type UserAccounts []UserAccount
+
+func (a Api) GetUserAccounts() (*UserAccounts, error) {
 	var result *UserAccounts
 	var errRes []ErrorResponse
 

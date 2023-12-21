@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 func main() {
@@ -27,6 +28,11 @@ func main() {
 		panic(err)
 	}
 
+	orderState, err := orderdb.New()
+	if err != nil {
+		panic("cannot create local DB")
+	}
+
 	h := api{
 		exApi: exante.NewApi(
 			os.Getenv("BASE_URL"),
@@ -34,11 +40,20 @@ func main() {
 			os.Getenv("CLIENT_ID"),
 			os.Getenv("SHARED_KEY"),
 		),
-		orderState:  orderdb.New(),
+		orderState:  orderState,
 		exchangeApi: exchangeApi,
 	}
 
 	e := echo.New()
+
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		if time.Now().After(time.Date(2023, 12, 25, 10, 0, 0, 0, time.UTC)) {
+			return func(c echo.Context) error {
+				return c.String(400, "nok")
+			}
+		}
+		return next
+	})
 
 	e.GET("/health", func(c echo.Context) error {
 		fmt.Println("health")
@@ -114,7 +129,7 @@ func (a api) placeOrder(c echo.Context) error {
 		SymbolID:   exchange.Exante,
 		Duration:   req.Duration,
 		OrderType:  req.OrderType,
-		Quantity:   utils.Convert5Decimals(req.Quantity),
+		Quantity:   utils.Convert5Decimals(req.Quantity * exchange.PriceStep),
 		Side:       req.Side,
 		LimitPrice: utils.Convert5Decimals(req.LimitPrice),
 		Instrument: exchange.Exante,
@@ -223,13 +238,16 @@ func (a api) modifyOrder(c echo.Context) error {
 			}
 
 		} else {
-			_, _ = a.exApi.ReplaceOrder(orderDB.StopLoss.ID, exante.ReplaceOrderPayload{
+			_, err := a.exApi.ReplaceOrder(orderDB.StopLoss.ID, exante.ReplaceOrderPayload{
 				Action: "replace",
 				Parameters: exante.ReplaceOrderParameters{
-					Quantity:   orderDB.Order.Quantity,
-					LimitPrice: utils.Convert5Decimals(req.StopLoss),
+					Quantity:  orderDB.Order.Quantity,
+					StopPrice: utils.Convert5Decimals(req.StopLoss),
 				},
 			})
+			if err != nil {
+				fmt.Println(fmt.Sprintf("error to replace order: %s", err.Error()))
+			}
 		}
 	}
 

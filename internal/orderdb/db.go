@@ -33,14 +33,19 @@ func NewOrderGroup() OrderGroup {
 	}
 }
 
-func New() *OrderState {
+func New() (*OrderState, error) {
 	d := diskv.New(diskv.Options{
 		BasePath:     ".db",
 		Transform:    func(s string) []string { return []string{} },
 		CacheSizeMax: 1024 * 1024,
 	})
 
-	return &OrderState{d: d}
+	err := d.Write("test", []byte{})
+	if err != nil {
+		return nil, err
+	}
+
+	return &OrderState{d: d}, nil
 }
 
 func (os *OrderState) Upsert(ticketID string, order OrderGroup) {

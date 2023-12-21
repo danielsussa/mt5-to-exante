@@ -18,7 +18,7 @@ type data struct {
 type DataExchanges struct {
 	Exante     string  `yaml:"exante"`
 	MetaTrader string  `yaml:"metaTrader"`
-	Mti        float64 `yaml:"mti"`
+	PriceStep  float64 `yaml:"priceStep"`
 }
 
 func New(path string) (*Api, error) {

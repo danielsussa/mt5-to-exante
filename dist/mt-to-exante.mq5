@@ -44,6 +44,22 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
 
    PrintFormat("[t_order=%d/res_order=%d/position=%d] ot: %s t: %s d: %s rt: %s",trans.order,result.order,request.position,EnumToString(lastOrderType),EnumToString(trans.type),EnumToString(lastOrderState),EnumToString(request.action));
 
+ //  if (lastOrderState == ORDER_STATE_STARTED || lastOrderState == ORDER_STATE_REJECTED || lastOrderState == ORDER_STATE_EXPIRED) {
+   //   return;
+   //}
+
+   //if (lastOrderType == TRADE_TRANSACTION_HISTORY_ADD) {
+     // return;
+   //}
+
+
+
+
+   // buy limit OK
+   // buy market NOK
+   // buy c/ STOPS NOK  (NOT SO IMPORTANT)
+   // modify open position add stop
+   // market order with stop loss and gain
 
 
    CJAVal jv;
@@ -102,11 +118,13 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
 
    bool isLimitOrder =
       request.action == TRADE_ACTION_PENDING &&
-      trans.position == NULL;
+      trans.position == NULL &&
+      result.order > 0;
 
    bool changeLimitOrder =
       request.action == TRADE_ACTION_MODIFY &&
-      trans.position == NULL;
+      trans.position == NULL &&
+      result.order > 0;
 
    bool isMarketOrder =
       request.action == TRADE_ACTION_DEAL &&
@@ -126,17 +144,17 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
 
 
    if (isLimitOrder) {
-      jv["stopPrice"]=request.sl;
+      jv["stopLoss"]=request.sl;
       jv["takeProfit"]=request.tp;
       jv["orderType"]="limit";
-      PrintFormat("LIMIT ORDER: #%d %s modified: SL=%.5f TP=%.5f",result.order,trans_symbol,request.sl,request.tp);
+      PrintFormat("LIMIT_ORDER: #%d %s modified: SL=%.5f TP=%.5f",result.order,trans_symbol,request.sl,request.tp);
 
       string url= StringFormat("%s/v3/orders/%d/place", sdkUrl, result.order);
       performOrder(url, &jv);
 
    }
    if (isMarketOrder) {
-      jv["stopPrice"]=request.sl;
+      jv["stopLoss"]=request.sl;
       jv["takeProfit"]=request.tp;
       jv["orderType"]="market";
       PrintFormat("MARKET_ORDER: #%d %s modified: SL=%.5f TP=%.5f",result.order,trans_symbol,request.sl,request.tp);
@@ -145,12 +163,12 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
       performOrder(url, &jv);
    }
    if (changeLimitOrder) {
-      jv["stopPrice"]=request.sl;
+      jv["stopLoss"]=request.sl;
       jv["takeProfit"]=request.tp;
       jv["orderType"]="limit";
       PrintFormat("CHANGE_LIMIT: #%d %s modified: SL=%.5f TP=%.5f",result.order,trans_symbol,request.sl,request.tp);
 
-      string url= StringFormat("%s/v3/orders/%d/place", sdkUrl, result.order);
+      string url= StringFormat("%s/v3/orders/%d/modify", sdkUrl, result.order);
       performOrder(url, &jv);
    }
    if (isClosePosition) {
@@ -170,7 +188,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
       jv["takeProfit"]=request.tp;
       PrintFormat("CHANGE_TPLS: #%d %s modified: SL=%.5f TP=%.5f",request.position,trans_symbol,request.sl,request.tp);
 
-      string url= StringFormat("%s/v3/positions/%d/tpls", sdkUrl, request.position);
+      string url= StringFormat("%s/v3/orders/%d/modify", sdkUrl, request.position);
       performOrder(url, &jv);
    }
 
@@ -184,4 +202,8 @@ void performOrder(string url, CJAVal* jv) {
    string res_headers=NULL;
 
    int r=WebRequest("POST", url, "Content-Type: application/json\r\n", 5000, data, res_data, res_headers);
+   if (r > 399) {
+      PrintFormat("Error calling SDK (status=%d) %s",r, CharArrayToString(res_data));
+   }
+
 }

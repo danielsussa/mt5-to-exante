@@ -2,6 +2,7 @@ package orderdb
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/google/uuid"
 	"github.com/peterbourgon/diskv/v3"
 )
@@ -33,9 +34,9 @@ func NewOrderGroup() OrderGroup {
 	}
 }
 
-func New() (*OrderState, error) {
+func New(path string) (*OrderState, error) {
 	d := diskv.New(diskv.Options{
-		BasePath:     ".db",
+		BasePath:     fmt.Sprintf("%s/.db", path),
 		Transform:    func(s string) []string { return []string{} },
 		CacheSizeMax: 1024 * 1024,
 	})
@@ -43,6 +44,11 @@ func New() (*OrderState, error) {
 	err := d.Write("test", []byte{})
 	if err != nil {
 		return nil, err
+	}
+
+	has := d.Has("test")
+	if !has {
+		return nil, fmt.Errorf("error creatind .db")
 	}
 
 	return &OrderState{d: d}, nil

@@ -28,7 +28,7 @@ func main() {
 		panic(err)
 	}
 
-	orderState, err := orderdb.New()
+	orderState, err := orderdb.New(exPath)
 	if err != nil {
 		panic("cannot create local DB")
 	}

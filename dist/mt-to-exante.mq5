@@ -10,7 +10,7 @@
 
 //--- input parameters
 input string         sdkUrl="http://127.0.0.1:1323";
-input string         accoundID="QJO2251.001";
+input string         accoundID="OZK2252.001";
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -37,12 +37,12 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
    double            priceTp   =trans.price_tp;
    double            volume   =request.volume;
    double            price   =request.price;
-   ENUM_ORDER_TYPE  lastOrderType =trans.order_type;
+   ENUM_ORDER_TYPE  orderType =request.type;
    ENUM_ORDER_STATE lastOrderState=trans.order_state;
    string trans_symbol=request.symbol;
 
 
-   PrintFormat("[t_order=%d/res_order=%d/position=%d] ot: %s t: %s d: %s rt: %s",trans.order,result.order,request.position,EnumToString(lastOrderType),EnumToString(trans.type),EnumToString(lastOrderState),EnumToString(request.action));
+   PrintFormat("[t_order=%d/res_order=%d/position=%d] ot: %s t: %s d: %s rt: %s",trans.order,result.order,request.position,EnumToString(orderType),EnumToString(trans.type),EnumToString(lastOrderState),EnumToString(request.action));
 
  //  if (lastOrderState == ORDER_STATE_STARTED || lastOrderState == ORDER_STATE_REJECTED || lastOrderState == ORDER_STATE_EXPIRED) {
    //   return;
@@ -70,7 +70,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
    jv["duration"]="good_till_cancel";
    jv["accountId"]=accoundID;
 
-   switch(lastOrderType)
+   switch(orderType)
       {
        case ORDER_TYPE_BUY:
         {

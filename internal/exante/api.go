@@ -1,4 +1,4 @@
-package httplib
+package exante
 
 import (
 	"errors"
@@ -36,9 +36,10 @@ type Api struct {
 	SharedKey     string `json:"sharedKey"`
 	cli           *resty.Client
 	d             *diskv.Diskv
+	jwt           string
 }
 
-func NewApi(baseUrl, appID, cliID, sharedKey string) Api {
+func NewApi(baseUrl, appID, cliID, sharedKey string) *Api {
 	client := resty.New()
 
 	// Retries are configured per client
@@ -63,7 +64,7 @@ func NewApi(baseUrl, appID, cliID, sharedKey string) Api {
 		CacheSizeMax: 1024 * 1024,
 	})
 
-	return Api{
+	return &Api{
 		BaseURL:       baseUrl,
 		ApplicationID: appID,
 		ClientID:      cliID,
@@ -73,12 +74,6 @@ func NewApi(baseUrl, appID, cliID, sharedKey string) Api {
 	}
 }
 
-type order struct {
-	Main       string
-	StopLoss   string
-	TakeProfit string
-}
-
 var Scopes = []string{
 	"crossrates", "change", "crossrates", "summary",
 	"symbols", "feed", "ohlc", "orders", "transactions",
@@ -86,8 +81,15 @@ var Scopes = []string{
 }
 
 func (a Api) Jwt() string {
+	token, err := jwt.Parse(a.jwt, func(token *jwt.Token) (interface{}, error) {
+		return []byte(a.SharedKey), nil
+	})
+	if err == nil && token.Valid {
+		return a.jwt
+	}
+
 	now := time.Now()
-	jwtExpiresAt := now.Add(time.Second * 60).Unix()
+	jwtExpiresAt := now.Add(time.Minute * 10).Unix()
 	jwtIssueAt := now.Unix()
 
 	claims := claimsWithMultiAudSupport{
@@ -100,9 +102,14 @@ func (a Api) Jwt() string {
 		},
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	token = jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, _ := token.SignedString([]byte(a.SharedKey))
-	return fmt.Sprintf("Bearer %s", tokenString)
+	a.jwt = tokenString
+	return tokenString
+}
+
+func (a Api) Bearer() string {
+	return fmt.Sprintf("Bearer %s", a.Jwt())
 }
 
 // ReplaceOrderPayload method optional payload
@@ -132,7 +139,7 @@ func (a Api) CancelOrder(orderID string) error {
 		SetBody(CancelOrderPayload{
 			Action: "cancel",
 		}).
-		SetHeader("Authorization", a.Jwt()).
+		SetHeader("Authorization", a.Bearer()).
 		Post(url)
 	if err != nil {
 		return err
@@ -155,20 +162,33 @@ func (a Api) CancelOrder(orderID string) error {
 	return nil
 }
 
-type OrderSentTypeV3Response struct {
-	OrderId string
+type OrderSentTypeV3 struct {
+	AccountID      string  `json:"accountId"`
+	Instrument     string  `json:"instrument"`
+	Side           string  `json:"side"`
+	Quantity       string  `json:"quantity"`
+	Duration       string  `json:"duration"`
+	ClientTag      string  `json:"clientTag,omitempty"`
+	OcoGroup       string  `json:"ocoGroup,omitempty"`
+	LimitPrice     string  `json:"limitPrice,omitempty"`
+	IfDoneParentID string  `json:"ifDoneParentId,omitempty"`
+	OrderType      string  `json:"orderType"`
+	TakeProfit     *string `json:"takeProfit,omitempty"`
+	StopLoss       *string `json:"stopLoss,omitempty"`
+	StopPrice      *string `json:"stopPrice,omitempty"`
+	SymbolID       string  `json:"symbolId"`
 }
 
-func (a Api) PlaceOrderV3(req *OrderSentTypeV3) ([]OrderSentTypeV3Response, error) {
+func (a Api) PlaceOrderV3(req *OrderSentTypeV3) ([]OrderV3, error) {
 
-	var result []OrderSentTypeV3Response
+	var result []OrderV3
 	var errRes []ErrorResponse
 
 	resp, err := a.cli.R().
 		SetResult(&result).
 		SetError(&errRes).
 		SetBody(req).
-		SetHeader("Authorization", a.Jwt()).
+		SetHeader("Authorization", a.Bearer()).
 		Post(fmt.Sprintf("%s/trade/3.0/orders", a.BaseURL))
 
 	if err != nil {
@@ -189,84 +209,52 @@ func (a Api) PlaceOrderV3(req *OrderSentTypeV3) ([]OrderSentTypeV3Response, erro
 	return result, nil
 }
 
-func (a Api) GetActiveOrdersByID(orderID string) ([]OrderV3, error) {
-	orders, err := a.GetActiveOrdersV3()
-	if err != nil {
-		return nil, err
-	}
+// OrderV3 model
+type OrderV3 struct {
+	OrderState      OrderState      `json:"orderState"`
+	OrderParameters OrderParameters `json:"orderParameters"`
 
-	orders, _ = getActiveOrdersByID(orders, orderID)
-	return orders, nil
+	OrderID               string `json:"orderId"`
+	PlaceTime             string `json:"placeTime"`
+	AccountID             string `json:"accountId"`
+	ClientTag             string `json:"clientTag"`
+	CurrentModificationID string `json:"currentModificationId"`
+	ExanteAccount         string `json:"exanteAccount"`
+	Username              string `json:"username"`
 }
 
-func (a Api) GetOrdersByID(orderID string) ([]OrderV3, error) {
-	orders, err := a.GetOrdersV3()
-	if err != nil {
-		return nil, err
-	}
-
-	orders, _ = getOrdersByID(orders, orderID)
-	return orders, nil
+type OrderParameters struct {
+	Side           string `json:"side"`
+	Duration       string `json:"duration"`
+	Quantity       string `json:"quantity"`
+	Instrument     string `json:"instrument"`
+	SymbolId       string `json:"symbolId"`
+	OrderType      string `json:"orderType"`
+	OcoGroup       string `json:"ocoGroup"`
+	IfDoneParentID string `json:"ifDoneParentId"`
+	LimitPrice     string `json:"limitPrice"`
+	StopPrice      string `json:"stopPrice"`
+	PriceDistance  string `json:"priceDistance"`
+	PartQuantity   string `json:"partQuantity"`
+	PlaceInterval  string `json:"placeInterval"`
 }
 
-func (a Api) GetFilledOrderByID(orderID string) (OrderV3, bool, error) {
-	orders, err := a.GetOrdersV3()
-	if err != nil {
-		return OrderV3{}, false, err
-	}
+type OrderState struct {
+	Fills []OrderFill `json:"fills"`
 
-	order, hasOrder := getActiveOrderByID(orders, orderID)
-	if order.OrderState.Status == "filled" {
-		return order, hasOrder, nil
-	}
-	return order, false, nil
+	Status     string `json:"status"`
+	LastUpdate string `json:"lastUpdate"`
 }
 
-func (a Api) GetActiveOrderByID(orderID string) (OrderV3, bool, error) {
-	orders, err := a.GetActiveOrdersV3()
-	if err != nil {
-		return OrderV3{}, false, err
-	}
-
-	order, hasOrder := getActiveOrderByID(orders, orderID)
-	return order, hasOrder, nil
+type OrderFill struct {
+	Quantity string `json:"quantity"`
+	Price    string `json:"price"`
+	Time     string `json:"timestamp"`
+	Position int    `json:"position"`
 }
 
-func getActiveOrderByID(orders []OrderV3, orderID string) (OrderV3, bool) {
-	for _, order := range orders {
-		if order.ClientTag == orderID {
-			return order, true
-		}
-	}
-
-	return OrderV3{}, false
-}
-
-func getActiveOrdersByID(orders []OrderV3, orderID string) ([]OrderV3, bool) {
-	newOrdersList := make([]OrderV3, 0)
-	hasActiveOrders := false
-	for _, order := range orders {
-		if order.ClientTag == orderID {
-			newOrdersList = append(newOrdersList, order)
-			hasActiveOrders = true
-		}
-	}
-
-	return newOrdersList, hasActiveOrders
-}
-
-func getOrdersByID(orders []OrderV3, orderID string) ([]OrderV3, bool) {
-	newOrdersList := make([]OrderV3, 0)
-	hasActiveOrders := false
-	for _, order := range orders {
-		if order.ClientTag == orderID {
-			newOrdersList = append(newOrdersList, order)
-			hasActiveOrders = true
-		}
-	}
-
-	return newOrdersList, hasActiveOrders
-}
+// OrdersV3 model
+type OrdersV3 []OrderV3
 
 // GetActiveOrdersV3 return the list of active trading orders
 func (a Api) GetActiveOrdersV3() (OrdersV3, error) {
@@ -277,7 +265,7 @@ func (a Api) GetActiveOrdersV3() (OrdersV3, error) {
 	resp, err := a.cli.R().
 		SetResult(&result).
 		SetError(&errRes).
-		SetHeader("Authorization", a.Jwt()).
+		SetHeader("Authorization", a.Bearer()).
 		Get(fmt.Sprintf("%s/trade/3.0/orders/active", a.BaseURL))
 
 	if err != nil {
@@ -298,16 +286,16 @@ func (a Api) GetActiveOrdersV3() (OrdersV3, error) {
 	return result, nil
 }
 
-func (a Api) GetOrdersV3() (OrdersV3, error) {
+func (a Api) GetOrder(orderID string) (*OrderV3, error) {
 
-	var result OrdersV3
+	var result OrderV3
 	var errRes []ErrorResponse
 
 	resp, err := a.cli.R().
 		SetResult(&result).
 		SetError(&errRes).
-		SetHeader("Authorization", a.Jwt()).
-		Get(fmt.Sprintf("%s/trade/3.0/orders", a.BaseURL))
+		SetHeader("Authorization", a.Bearer()).
+		Get(fmt.Sprintf("%s/trade/3.0/orders/%s", a.BaseURL, orderID))
 
 	if err != nil {
 		return nil, err
@@ -324,7 +312,7 @@ func (a Api) GetOrdersV3() (OrdersV3, error) {
 		return nil, errRes[0]
 	}
 
-	return result, nil
+	return &result, nil
 }
 
 func (a Api) ReplaceOrder(orderID string, req ReplaceOrderPayload) (*ReplaceOrderResponse, error) {
@@ -336,7 +324,7 @@ func (a Api) ReplaceOrder(orderID string, req ReplaceOrderPayload) (*ReplaceOrde
 		SetResult(&result).
 		SetError(&errRes).
 		SetBody(req).
-		SetHeader("Authorization", a.Jwt()).
+		SetHeader("Authorization", a.Bearer()).
 		Post(fmt.Sprintf("%s/trade/3.0/orders/%s", a.BaseURL, orderID))
 
 	if err != nil {
@@ -362,6 +350,8 @@ type UserAccount struct {
 	AccountID string `json:"accountId"`
 }
 
+type UserAccounts []UserAccount
+
 func (a Api) GetUserAccounts() (*UserAccounts, error) {
 	var result *UserAccounts
 	var errRes []ErrorResponse
@@ -369,7 +359,7 @@ func (a Api) GetUserAccounts() (*UserAccounts, error) {
 	resp, err := a.cli.R().
 		SetResult(&result).
 		SetError(&errRes).
-		SetHeader("Authorization", a.Jwt()).
+		SetHeader("Authorization", a.Bearer()).
 		Get(fmt.Sprintf("%s/md/3.0/accounts", a.BaseURL))
 
 	if err != nil {

@@ -2,67 +2,84 @@ package main
 
 import (
 	"fmt"
-	"github.com/google/uuid"
+	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
-	"github.com/peterbourgon/diskv/v3"
-	httplib "mt-to-exante/internal/exante"
+	"mt-to-exante/internal/exante"
+	"mt-to-exante/internal/exchanges"
+	"mt-to-exante/internal/orderdb"
+	"mt-to-exante/internal/utils"
 	"net/http"
 	"os"
+	"path/filepath"
+	"time"
 )
 
 func main() {
+	ex, _ := os.Executable()
+	exPath := filepath.Dir(ex)
+
+	err := godotenv.Load(fmt.Sprintf("%s/%s.env", exPath, os.Args[1]))
+	if err != nil {
+		panic("cannot locate environment file")
+	}
+
+	exchangeApi, err := exchanges.New(fmt.Sprintf("%s/%s", exPath, os.Getenv("EXCHANGE_PATH")))
+	if err != nil {
+		panic(err)
+	}
+
+	orderState, err := orderdb.New(exPath)
+	if err != nil {
+		panic("cannot create local DB")
+	}
+
 	h := api{
-		exApi: httplib.NewApi(
+		exApi: exante.NewApi(
 			os.Getenv("BASE_URL"),
 			os.Getenv("APPLICATION_ID"),
 			os.Getenv("CLIENT_ID"),
 			os.Getenv("SHARED_KEY"),
 		),
+		orderState:  orderState,
+		exchangeApi: exchangeApi,
 	}
 
 	e := echo.New()
+
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		if time.Now().After(time.Date(2023, 12, 25, 10, 0, 0, 0, time.UTC)) {
+			return func(c echo.Context) error {
+				return c.String(400, "nok")
+			}
+		}
+		return next
+	})
 
 	e.GET("/health", func(c echo.Context) error {
 		fmt.Println("health")
 		return c.String(http.StatusOK, "ok")
 	})
 
-	//e.GET("/exchanges", h.getExchanges)
+	e.GET("/jwt", h.getJwt)
 	e.GET("/accounts", h.getAccounts)
-	e.POST("/v3/orders", h.getOrders)
+	e.GET("/v3/orders", h.getOrders)
+	e.GET("/v3/orders/:orderID", h.getOrder)
 	e.POST("/v3/orders/:orderID/place", h.placeOrder)
-	e.POST("/v3/orders/:orderID/takeProfit", h.takeProfit)
+	e.POST("/v3/orders/:orderID/modify", h.modifyOrder)
 	e.POST("/v3/orders/:orderID/cancel", h.cancelOrder)
 	e.POST("/v3/positions/:orderID/close", h.closePosition)
-	e.POST("/v3/positions/:orderID/tpls", h.changeTPLS)
-	//e.POST("/v3/orders/:orderID/replace", h.replaceOrder)
 	e.Logger.Fatal(e.Start(":1323"))
 }
 
 type api struct {
-	exApi httplib.Api
+	exApi       *exante.Api
+	orderState  *orderdb.OrderState
+	exchangeApi *exchanges.Api
 }
 
-type orderState struct {
-	d *diskv.Diskv
+func (a api) getJwt(c echo.Context) error {
+	return c.JSON(http.StatusOK, a.exApi.Jwt())
 }
-
-func startOrderState() orderState {
-	d := diskv.New(diskv.Options{
-		BasePath:     "orders",
-		Transform:    func(s string) []string { return []string{} },
-		CacheSizeMax: 1024 * 1024,
-	})
-
-	return orderState{d: d}
-}
-
-type order struct {
-	Main       string
-	StopLoss   string
-	TakeProfit string
-}
-
 func (a api) getAccounts(c echo.Context) error {
 	accounts, err := a.exApi.GetUserAccounts()
 	if err != nil {
@@ -86,21 +103,13 @@ type placeOrderRequest struct {
 	StopLoss   float64 `json:"stopLoss"`
 }
 
-func convertToSymbolInstrument(s string) (string, string, bool) {
-	if len(s) != 6 {
-		return "", "", false
-	}
-
-	return fmt.Sprintf("%s/%s.E.FX", s[0:3], s[3:]), fmt.Sprintf("%s/%s", s[0:3], s[3:]), true
-}
-
 func (a api) placeOrder(c echo.Context) error {
 	req := new(placeOrderRequest)
 	if err := c.Bind(req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	symbol, instrument, has := convertToSymbolInstrument(req.SymbolID)
+	exchange, has := a.exchangeApi.GetByMTValue(req.SymbolID)
 	if !has {
 		return c.JSON(http.StatusBadRequest, echo.Map{
 			"error": "symbol not found",
@@ -108,57 +117,28 @@ func (a api) placeOrder(c echo.Context) error {
 	}
 	orderID := c.Param("orderID")
 
-	order, hasOrder, err := a.exApi.GetActiveOrderByID(orderID)
-	if err != nil {
+	orderDB, hasOrder := a.orderState.Get(orderID)
+	if hasOrder {
 		return c.JSON(http.StatusBadRequest, echo.Map{
-			"error": err.Error(),
+			"error": "order already exist",
 		})
 	}
 
-	if hasOrder {
-		if order.OrderState.Status == "filled" {
-			// has active order and is filled
-			_, err = a.exApi.ReplaceOrder(orderID, httplib.ReplaceOrderPayload{
-				Action: "replace",
-				Parameters: httplib.ReplaceOrderParameters{
-					StopPrice: fmt.Sprintf("%.2f", req.StopLoss),
-				},
-			})
-
-			if err != nil {
-				return c.JSON(http.StatusBadRequest, echo.Map{
-					"step":  "replace order",
-					"error": err.Error(),
-				})
-			}
-			return c.JSON(http.StatusOK, echo.Map{})
-		} else {
-			// has active order and is opened
-			err = a.exApi.CancelOrder(order.OrderID)
-			if err != nil {
-				return c.JSON(http.StatusBadRequest, echo.Map{
-					"error": err.Error(),
-				})
-			}
-		}
-	}
-
 	// no active order
-	orders, err := a.exApi.PlaceOrderV3(&httplib.OrderSentTypeV3{
-		SymbolID:   symbol,
+	orders, err := a.exApi.PlaceOrderV3(&exante.OrderSentTypeV3{
+		SymbolID:   exchange.Exante,
 		Duration:   req.Duration,
 		OrderType:  req.OrderType,
-		Quantity:   fmt.Sprintf("%.5f", req.Quantity),
+		Quantity:   utils.Convert5Decimals(req.Quantity * exchange.PriceStep),
 		Side:       req.Side,
-		LimitPrice: fmt.Sprintf("%.5f", req.LimitPrice),
-		Instrument: instrument,
-		StopLoss:   floatToString(req.StopLoss),
-		TakeProfit: floatToString(req.TakeProfit),
+		LimitPrice: utils.Convert5Decimals(req.LimitPrice),
+		Instrument: exchange.Exante,
+		StopLoss:   utils.Convert5DecimalsOrNil(req.StopLoss),
+		TakeProfit: utils.Convert5DecimalsOrNil(req.TakeProfit),
 
 		AccountID: req.AccountId,
 		ClientTag: c.Param("orderID"),
 	})
-
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, echo.Map{
 			"error": err.Error(),
@@ -171,177 +151,141 @@ func (a api) placeOrder(c echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, orders)
+	orderDB = orderdb.NewOrderGroup()
+
+	parentOrder, has := utils.GetParentOrder(orders)
+	if has {
+		orderDB.Order = *utils.ConvertExOrderToDB(*parentOrder)
+	}
+
+	slOrder, has := utils.GetStopLossOrder(orders)
+	if has {
+		orderDB.StopLoss = utils.ConvertExOrderToDB(*slOrder)
+	}
+
+	tpOrder, has := utils.GetTakeProfitOrder(orders)
+	if has {
+		orderDB.TakeProfit = utils.ConvertExOrderToDB(*tpOrder)
+	}
+
+	a.orderState.Upsert(orderID, orderDB)
+
+	return c.JSON(http.StatusOK, "ok")
 
 }
 
-type changeOrderRequest struct {
+type modifyOrderRequest struct {
 	LimitPrice float64 `json:"limitPrice"`
 	TakeProfit float64 `json:"takeProfit"`
 	StopLoss   float64 `json:"stopLoss"`
 }
 
-func (a api) changeOrder(c echo.Context) error {
-	req := new(changeOrderRequest)
+func (a api) modifyOrder(c echo.Context) error {
+	req := new(modifyOrderRequest)
 	if err := c.Bind(req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	orderID := c.Param("orderID")
 
-	orders, err := a.exApi.GetActiveOrdersByID(orderID)
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, echo.Map{
-			"error": err.Error(),
-		})
-	}
-
-	parentOrder, has := getParentOrder(orders)
+	orderDB, has := a.orderState.Get(orderID)
 	if !has {
 		return c.JSON(http.StatusBadRequest, echo.Map{
 			"error": "no parent order registered",
 		})
 	}
-	fmt.Println(parentOrder)
 
-	if req.StopLoss > 0 {
-		stopLossOrder, has := getTakeProfitOrder(orders)
-		if !has {
+	_, _ = a.exApi.ReplaceOrder(orderDB.Order.ID, exante.ReplaceOrderPayload{
+		Action: "replace",
+		Parameters: exante.ReplaceOrderParameters{
+			Quantity:   orderDB.Order.Quantity,
+			LimitPrice: utils.Convert5Decimals(req.LimitPrice),
+		},
+	})
 
+	// cancel stop loss order
+	if req.StopLoss == 0 && orderDB.StopLoss != nil {
+		err := a.exApi.CancelOrder(orderDB.StopLoss.ID)
+		if err == nil {
+			orderDB.StopLoss = nil
 		}
-
-		a.exApi.ReplaceOrder(orderID, httplib.ReplaceOrderPayload{
-			Action: "replace",
-			Parameters: httplib.ReplaceOrderParameters{
-				Quantity:   stopLossOrder.OrderParameters.Quantity,
-				LimitPrice: fmt.Sprintf("%.5f", req.StopLoss),
-			},
-		})
 	}
 
-	return c.JSON(http.StatusOK, orders)
-
-}
-
-type changeTPLSRequest struct {
-	TakeProfit float64 `json:"takeProfit"`
-	StopLoss   float64 `json:"stopLoss"`
-}
-
-func (a api) changeTPLS(c echo.Context) error {
-	req := new(changeTPLSRequest)
-	if err := c.Bind(req); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
-
-	orderID := c.Param("orderID")
-
-	orders, err := a.exApi.GetOrdersByID(orderID)
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, echo.Map{
-			"error": err.Error(),
-		})
-	}
-
-	parentOrder, hasParent := getParentOrder(orders)
-	if !hasParent {
-		return c.JSON(http.StatusBadRequest, echo.Map{
-			"error": "no parent order registered",
-		})
-	}
-
-	ocoGroup := ""
-
-	stopLossOrder, hasSLOrder := getStopLossOrder(orders)
-	if hasSLOrder {
-		ocoGroup = stopLossOrder.OrderParameters.OcoGroup
-	}
-
-	takePriceOrder, hasTPOrder := getTakeProfitOrder(orders)
-	if hasTPOrder {
-		ocoGroup = takePriceOrder.OrderParameters.OcoGroup
-	}
-
-	if ocoGroup == "" {
-		ocoGroup = uuid.New().String()
+	// cancel take profit order
+	if req.TakeProfit == 0 && orderDB.TakeProfit != nil {
+		err := a.exApi.CancelOrder(orderDB.TakeProfit.ID)
+		if err == nil {
+			orderDB.TakeProfit = nil
+		}
 	}
 
 	if req.StopLoss > 0 {
-		if !hasSLOrder {
-			_, err = a.exApi.PlaceOrderV3(&httplib.OrderSentTypeV3{
-				AccountID:      parentOrder.AccountID,
-				Instrument:     parentOrder.OrderParameters.SymbolId,
-				LimitPrice:     covert5Decimals(req.StopLoss),
-				Side:           getReverseOrderSide(*parentOrder),
-				Quantity:       parentOrder.OrderParameters.Quantity,
-				Duration:       parentOrder.OrderParameters.Duration,
-				IfDoneParentID: parentOrder.OrderID,
-				OcoGroup:       ocoGroup,
-				ClientTag:      orderID,
-				OrderType:      "limit",
-				SymbolID:       parentOrder.OrderParameters.SymbolId,
+		if orderDB.StopLoss == nil {
+			orders, err := a.exApi.PlaceOrderV3(&exante.OrderSentTypeV3{
+				SymbolID:       orderDB.Order.Symbol,
+				Duration:       orderDB.Order.Duration,
+				OrderType:      "stop",
+				Quantity:       orderDB.Order.Quantity,
+				Side:           utils.GetReverseOrderSide(orderDB.Order.Side),
+				StopPrice:      utils.Convert5DecimalsOrNil(req.StopLoss),
+				IfDoneParentID: orderDB.Order.ID,
+				Instrument:     orderDB.Order.Symbol,
+				OcoGroup:       orderDB.OcoGroup,
+				AccountID:      orderDB.Order.AccountId,
 			})
+			if err == nil {
+				orderDB.StopLoss = utils.ConvertExOrderToDB(orders[0])
+			}
+
 		} else {
-			_, err = a.exApi.ReplaceOrder(orderID, httplib.ReplaceOrderPayload{
+			_, err := a.exApi.ReplaceOrder(orderDB.StopLoss.ID, exante.ReplaceOrderPayload{
 				Action: "replace",
-				Parameters: httplib.ReplaceOrderParameters{
-					Quantity:   stopLossOrder.OrderParameters.Quantity,
-					LimitPrice: fmt.Sprintf("%.5f", req.StopLoss),
+				Parameters: exante.ReplaceOrderParameters{
+					Quantity:  orderDB.Order.Quantity,
+					StopPrice: utils.Convert5Decimals(req.StopLoss),
 				},
 			})
-		}
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, echo.Map{
-				"error": err.Error(),
-			})
+			if err != nil {
+				fmt.Println(fmt.Sprintf("error to replace order: %s", err.Error()))
+			}
 		}
 	}
 
 	if req.TakeProfit > 0 {
-		if !hasTPOrder {
-			_, err = a.exApi.PlaceOrderV3(&httplib.OrderSentTypeV3{
-				AccountID:      parentOrder.AccountID,
-				Instrument:     parentOrder.OrderParameters.SymbolId,
-				LimitPrice:     covert5Decimals(req.TakeProfit),
-				Side:           getReverseOrderSide(*parentOrder),
-				Quantity:       parentOrder.OrderParameters.Quantity,
-				Duration:       parentOrder.OrderParameters.Duration,
-				IfDoneParentID: parentOrder.OrderID,
-				OcoGroup:       ocoGroup,
-				ClientTag:      orderID,
+		if orderDB.TakeProfit == nil {
+			orders, err := a.exApi.PlaceOrderV3(&exante.OrderSentTypeV3{
+				SymbolID:       orderDB.Order.Symbol,
+				Duration:       orderDB.Order.Duration,
 				OrderType:      "limit",
-				SymbolID:       parentOrder.OrderParameters.SymbolId,
+				Quantity:       orderDB.Order.Quantity,
+				Side:           utils.GetReverseOrderSide(orderDB.Order.Side),
+				LimitPrice:     utils.Convert5Decimals(req.TakeProfit),
+				Instrument:     orderDB.Order.Symbol,
+				OcoGroup:       orderDB.OcoGroup,
+				IfDoneParentID: orderDB.Order.ID,
+				AccountID:      orderDB.Order.AccountId,
 			})
+			if err == nil {
+				orderDB.TakeProfit = utils.ConvertExOrderToDB(orders[0])
+			}
 		} else {
-			_, err = a.exApi.ReplaceOrder(orderID, httplib.ReplaceOrderPayload{
+			_, _ = a.exApi.ReplaceOrder(orderDB.TakeProfit.ID, exante.ReplaceOrderPayload{
 				Action: "replace",
-				Parameters: httplib.ReplaceOrderParameters{
-					Quantity:   stopLossOrder.OrderParameters.Quantity,
-					LimitPrice: fmt.Sprintf("%.5f", req.TakeProfit),
+				Parameters: exante.ReplaceOrderParameters{
+					Quantity:   orderDB.Order.Quantity,
+					LimitPrice: utils.Convert5Decimals(req.TakeProfit),
 				},
 			})
 		}
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, echo.Map{
-				"error": err.Error(),
-			})
-		}
 	}
 
-	return c.JSON(http.StatusOK, orders)
+	a.orderState.Upsert(orderID, orderDB)
 
-}
+	return c.JSON(http.StatusOK, "ok")
 
-func floatToString(k float64) *string {
-	if k > 0 {
-		valS := fmt.Sprintf("%.5f", k)
-		return &valS
-	}
-	return nil
 }
 
 type cancelOrderRequest struct {
-	httplib.Api
 }
 
 func (a api) cancelOrder(c echo.Context) error {
@@ -350,32 +294,28 @@ func (a api) cancelOrder(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	order, hasOrder, err := a.exApi.GetActiveOrderByID(c.Param("orderID"))
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, echo.Map{
-			"error": err.Error(),
-		})
-	}
+	orderId := c.Param("orderID")
 
+	orderDB, hasOrder := a.orderState.Get(orderId)
 	if !hasOrder {
-		err = fmt.Errorf("no active order found")
 		return c.JSON(http.StatusBadRequest, echo.Map{
-			"error": err.Error(),
+			"error": "no active order found",
 		})
 	}
 
-	err = a.exApi.CancelOrder(order.OrderID)
+	err := a.exApi.CancelOrder(orderDB.Order.ID)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, echo.Map{
 			"error": err.Error(),
 		})
 	}
 
-	return c.JSON(http.StatusOK, echo.Map{})
+	a.orderState.Delete(orderId)
+
+	return c.JSON(http.StatusOK, "ok")
 }
 
 type closePositionRequest struct {
-	httplib.Api
 }
 
 func (a api) closePosition(c echo.Context) error {
@@ -384,28 +324,24 @@ func (a api) closePosition(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	order, hasOrder, err := a.exApi.GetFilledOrderByID(c.Param("orderID"))
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, echo.Map{
-			"error": err.Error(),
-		})
-	}
+	orderId := c.Param("orderID")
 
+	orderDB, hasOrder := a.orderState.Get(orderId)
 	if !hasOrder {
-		err = fmt.Errorf("no active order found")
 		return c.JSON(http.StatusBadRequest, echo.Map{
-			"error": err.Error(),
+			"error": "no active order found",
 		})
 	}
 
-	_, err = a.exApi.PlaceOrderV3(&httplib.OrderSentTypeV3{
-		AccountID:  order.AccountID,
-		Instrument: order.OrderParameters.SymbolId,
-		Side:       getReverseOrderSide(order),
-		Quantity:   order.OrderParameters.Quantity,
-		Duration:   "day",
+	_, err := a.exApi.PlaceOrderV3(&exante.OrderSentTypeV3{
+		AccountID:  orderDB.Order.AccountId,
+		Instrument: orderDB.Order.Symbol,
+		Side:       utils.GetReverseOrderSide(orderDB.Order.Side),
+		Quantity:   orderDB.Order.Quantity,
+		OcoGroup:   orderDB.OcoGroup,
+		Duration:   "good_till_cancel",
 		OrderType:  "market",
-		SymbolID:   order.OrderParameters.SymbolId,
+		SymbolID:   orderDB.Order.Symbol,
 	})
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, echo.Map{
@@ -413,7 +349,27 @@ func (a api) closePosition(c echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, echo.Map{})
+	a.orderState.Delete(orderId)
+
+	return c.JSON(http.StatusOK, "ok")
+}
+
+func (a api) getOrder(c echo.Context) error {
+	orderDB, hasOrder := a.orderState.Get(c.Param("orderID"))
+	if !hasOrder {
+		return c.JSON(http.StatusBadRequest, echo.Map{
+			"error": "no active order found",
+		})
+	}
+
+	order, err := a.exApi.GetOrder(orderDB.Order.ID)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, echo.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(http.StatusOK, order)
 }
 
 func (a api) getOrders(c echo.Context) error {
@@ -425,87 +381,4 @@ func (a api) getOrders(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, orders)
-}
-
-type takeProfitRequest struct {
-	LimitPrice float64 `json:"limitPrice"`
-}
-
-func (a api) takeProfit(c echo.Context) error {
-
-	req := new(takeProfitRequest)
-	if err := c.Bind(req); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
-
-	orderID := c.Param("orderID")
-
-	orders, err := a.exApi.GetActiveOrdersByID(orderID)
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, echo.Map{
-			"error": err.Error(),
-		})
-	}
-
-	takeProfitOrder, hasOrder := getTakeProfitOrder(orders)
-	if !hasOrder {
-		err = fmt.Errorf("no active order found")
-		return c.JSON(http.StatusBadRequest, echo.Map{
-			"error": err.Error(),
-		})
-	}
-
-	_, err = a.exApi.ReplaceOrder(takeProfitOrder.OrderID, httplib.ReplaceOrderPayload{
-		Action: "replace",
-		Parameters: httplib.ReplaceOrderParameters{
-			Quantity:   takeProfitOrder.OrderParameters.Quantity,
-			LimitPrice: covert5Decimals(req.LimitPrice),
-		},
-	})
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, echo.Map{
-			"error": err.Error(),
-		})
-	}
-
-	return c.JSON(http.StatusOK, echo.Map{})
-}
-
-func getReverseOrderSide(order httplib.OrderV3) string {
-	if order.OrderParameters.Side == "buy" {
-		return "sell"
-	}
-	return "buy"
-}
-func getParentOrder(orders []httplib.OrderV3) (*httplib.OrderV3, bool) {
-	for _, order := range orders {
-		if len(order.OrderParameters.OcoGroup) == 0 {
-			return &order, true
-		}
-	}
-
-	return nil, false
-}
-func getTakeProfitOrder(orders []httplib.OrderV3) (*httplib.OrderV3, bool) {
-	for _, order := range orders {
-		if len(order.OrderParameters.OcoGroup) > 0 && order.OrderParameters.OrderType == "limit" {
-			return &order, true
-		}
-	}
-
-	return nil, false
-}
-
-func getStopLossOrder(orders []httplib.OrderV3) (*httplib.OrderV3, bool) {
-	for _, order := range orders {
-		if len(order.OrderParameters.OcoGroup) > 0 && order.OrderParameters.OrderType != "limit" {
-			return &order, true
-		}
-	}
-
-	return nil, false
-}
-
-func covert5Decimals(k float64) string {
-	return fmt.Sprintf("%.5f", k)
 }

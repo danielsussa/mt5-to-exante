@@ -2,13 +2,13 @@ package main
 
 import (
 	"fmt"
+	"github.com/danielsussa/mt5-to-exante/internal/controller"
+	"github.com/danielsussa/mt5-to-exante/internal/exante"
+	"github.com/danielsussa/mt5-to-exante/internal/exchanges"
+	"github.com/danielsussa/mt5-to-exante/internal/orderdb"
+	"github.com/danielsussa/mt5-to-exante/internal/utils"
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
-	"mt-to-exante/internal/controller"
-	"mt-to-exante/internal/exante"
-	"mt-to-exante/internal/exchanges"
-	"mt-to-exante/internal/orderdb"
-	"mt-to-exante/internal/utils"
 	"net/http"
 	"os"
 	"path/filepath"

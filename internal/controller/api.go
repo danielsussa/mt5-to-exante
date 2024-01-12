@@ -2,10 +2,10 @@ package controller
 
 import (
 	"fmt"
-	"mt-to-exante/internal/exante"
-	"mt-to-exante/internal/exchanges"
-	"mt-to-exante/internal/orderdb"
-	"mt-to-exante/internal/utils"
+	"github.com/danielsussa/mt5-to-exante/internal/exante"
+	"github.com/danielsussa/mt5-to-exante/internal/exchanges"
+	"github.com/danielsussa/mt5-to-exante/internal/orderdb"
+	"github.com/danielsussa/mt5-to-exante/internal/utils"
 	"strings"
 	"time"
 )
@@ -191,14 +191,15 @@ func hasAddedTakeProfit(dbOrder orderdb.OrderGroup, mt5Order Mt5Order) bool {
 }
 
 func hasAddedStopLoss(dbOrder orderdb.OrderGroup, mt5Order Mt5Order) bool {
-	return dbOrder.StopLoss == nil && mt5Order.TakeProfit > 0
+	return dbOrder.StopLoss == nil && mt5Order.StopLoss > 0
 }
 
 func hasChangedStopLoss(dbOrder *orderdb.OrderDB, mt5Order Mt5Order) bool {
 	if dbOrder == nil {
 		return false
 	}
-	return dbOrder.Price != utils.Convert5Decimals(mt5Order.StopLoss)
+
+	return dbOrder.StopPrice != utils.Convert5Decimals(mt5Order.StopLoss)
 }
 
 func hasCancelledStopLoss(dbOrderGroup *orderdb.OrderGroup, mt5Order Mt5Order) bool {
@@ -277,7 +278,12 @@ func (a *Api) placeStopLoss(accountID string, order Mt5Order, orderGroup orderdb
 		return err
 	}
 
-	orderGroup.StopLoss = utils.ConvertExOrderToDB(exanteOrders[0])
+	lossOrder, has := utils.GetStopLossOrder(exanteOrders)
+	if !has {
+		return fmt.Errorf("cannot find stop loss order")
+	}
+
+	orderGroup.StopLoss = utils.ConvertExOrderToDB(*lossOrder)
 	a.db.Upsert(order.Ticket, orderGroup)
 
 	return nil
@@ -348,6 +354,10 @@ func (a *Api) replaceStopOrder(order orderdb.OrderDB, price float64) (*orderdb.O
 func (a *Api) cancelOrder(orderGroupDB orderdb.OrderGroup) error {
 	err := a.exanteApi.CancelOrder(orderGroupDB.Order.ID)
 	if err != nil {
+		if strings.Contains(err.Error(), "Unable to modify order") {
+			a.db.Delete(orderGroupDB.Ticket)
+			return nil
+		}
 		return err
 	}
 
@@ -372,7 +382,7 @@ func convertOrderType(ot OrderType) string {
 }
 
 func convertOrderSide(ot OrderType) string {
-	if strings.Contains(string(ot), "buy") {
+	if strings.Contains(string(ot), "BUY") {
 		return "buy"
 	}
 	return "sell"

@@ -1,11 +1,11 @@
 package controller
 
 import (
+	"github.com/danielsussa/mt5-to-exante/internal/exante"
+	"github.com/danielsussa/mt5-to-exante/internal/exchanges"
+	"github.com/danielsussa/mt5-to-exante/internal/orderdb"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
-	"mt-to-exante/internal/exante"
-	"mt-to-exante/internal/exchanges"
-	"mt-to-exante/internal/orderdb"
 	"testing"
 	"time"
 )
@@ -26,6 +26,7 @@ func TestApi(t *testing.T) {
 				return &exante.OrderV3{
 					OrderParameters: exante.OrderParameters{
 						LimitPrice: req.Parameters.LimitPrice,
+						StopPrice:  req.Parameters.StopPrice,
 					},
 					OrderID: orderID,
 				}, nil
@@ -71,6 +72,7 @@ func TestApi(t *testing.T) {
 							OcoGroup:   ocoGroup,
 							OrderType:  "!limit",
 							LimitPrice: *req.StopLoss,
+							StopPrice:  *req.StopLoss,
 						},
 						OrderID: uuid.NewString(),
 					})
@@ -147,7 +149,7 @@ func TestApi(t *testing.T) {
 		}
 		{
 			order, _ := db.Get("4321")
-			assert.Equal(t, "8.00000", order.StopLoss.Price)
+			assert.Equal(t, "8.00000", order.StopLoss.StopPrice)
 		}
 		{
 			// change take profit, should call exante
@@ -168,7 +170,7 @@ func TestApi(t *testing.T) {
 		}
 		{
 			order, _ := db.Get("4321")
-			assert.Equal(t, "8.00000", order.StopLoss.Price)
+			assert.Equal(t, "8.00000", order.StopLoss.StopPrice)
 			assert.Equal(t, "12.00000", order.TakeProfit.Price)
 		}
 

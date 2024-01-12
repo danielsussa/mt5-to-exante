@@ -2,8 +2,8 @@ package utils
 
 import (
 	"fmt"
-	"mt-to-exante/internal/exante"
-	"mt-to-exante/internal/orderdb"
+	"github.com/danielsussa/mt5-to-exante/internal/exante"
+	"github.com/danielsussa/mt5-to-exante/internal/orderdb"
 )
 
 func Convert5Decimals(k float64) string {
@@ -13,6 +13,7 @@ func Convert5Decimals(k float64) string {
 func ConvertExOrderToDB(v3 exante.OrderV3) *orderdb.OrderDB {
 	return &orderdb.OrderDB{
 		ID:         v3.OrderID,
+		StopPrice:  v3.OrderParameters.StopPrice,
 		Price:      v3.OrderParameters.LimitPrice,
 		Quantity:   v3.OrderParameters.Quantity,
 		Side:       v3.OrderParameters.Side,

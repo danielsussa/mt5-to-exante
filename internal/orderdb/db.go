@@ -32,6 +32,7 @@ type OrderGroup struct {
 type OrderDB struct {
 	ID         string
 	Price      string
+	StopPrice  string
 	Quantity   string
 	Side       string
 	Duration   string

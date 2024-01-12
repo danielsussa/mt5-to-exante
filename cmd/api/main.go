@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
+	"mt-to-exante/internal/controller"
 	"mt-to-exante/internal/exante"
 	"mt-to-exante/internal/exchanges"
 	"mt-to-exante/internal/orderdb"
@@ -33,21 +34,27 @@ func main() {
 		panic("cannot create local DB")
 	}
 
+	exanteApi := exante.NewApi(
+		os.Getenv("BASE_URL"),
+		os.Getenv("APPLICATION_ID"),
+		os.Getenv("CLIENT_ID"),
+		os.Getenv("SHARED_KEY"),
+	)
+
+	c := controller.New(exanteApi, orderState, *exchangeApi)
+
 	h := api{
-		exApi: exante.NewApi(
-			os.Getenv("BASE_URL"),
-			os.Getenv("APPLICATION_ID"),
-			os.Getenv("CLIENT_ID"),
-			os.Getenv("SHARED_KEY"),
-		),
+		accountID:   os.Getenv("ACCOUNT_ID"),
+		exApi:       exanteApi,
 		orderState:  orderState,
 		exchangeApi: exchangeApi,
+		controller:  c,
 	}
 
 	e := echo.New()
 
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
-		if time.Now().After(time.Date(2023, 12, 25, 10, 0, 0, 0, time.UTC)) {
+		if time.Now().After(time.Date(2024, 12, 25, 10, 0, 0, 0, time.UTC)) {
 			return func(c echo.Context) error {
 				return c.String(400, "nok")
 			}
@@ -62,19 +69,16 @@ func main() {
 
 	e.GET("/jwt", h.getJwt)
 	e.GET("/accounts", h.getAccounts)
-	e.GET("/v3/orders", h.getOrders)
-	e.GET("/v3/orders/:orderID", h.getOrder)
-	e.POST("/v3/orders/:orderID/place", h.placeOrder)
-	e.POST("/v3/orders/:orderID/modify", h.modifyOrder)
-	e.POST("/v3/orders/:orderID/cancel", h.cancelOrder)
-	e.POST("/v3/positions/:orderID/close", h.closePosition)
+	e.POST("/sync", h.sync)
 	e.Logger.Fatal(e.Start(":1323"))
 }
 
 type api struct {
+	accountID   string
 	exApi       *exante.Api
 	orderState  *orderdb.OrderState
 	exchangeApi *exchanges.Api
+	controller  *controller.Api
 }
 
 func (a api) getJwt(c echo.Context) error {
@@ -352,6 +356,18 @@ func (a api) closePosition(c echo.Context) error {
 	a.orderState.Delete(orderId)
 
 	return c.JSON(http.StatusOK, "ok")
+}
+
+func (a api) sync(c echo.Context) error {
+	req := new(controller.SyncRequest)
+	if err := c.Bind(req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	_ = a.controller.Sync(time.Now(), a.accountID, *req)
+	_ = a.controller.Flush()
+
+	return c.JSON(http.StatusOK, echo.Map{})
 }
 
 func (a api) getOrder(c echo.Context) error {

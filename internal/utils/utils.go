@@ -13,6 +13,7 @@ func Convert5Decimals(k float64) string {
 func ConvertExOrderToDB(v3 exante.OrderV3) *orderdb.OrderDB {
 	return &orderdb.OrderDB{
 		ID:         v3.OrderID,
+		Price:      v3.OrderParameters.LimitPrice,
 		Quantity:   v3.OrderParameters.Quantity,
 		Side:       v3.OrderParameters.Side,
 		Duration:   v3.OrderParameters.Duration,

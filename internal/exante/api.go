@@ -242,9 +242,20 @@ type OrderParameters struct {
 type OrderState struct {
 	Fills []OrderFill `json:"fills"`
 
-	Status     string `json:"status"`
+	Status     Status `json:"status"`
 	LastUpdate string `json:"lastUpdate"`
 }
+
+type Status string
+
+const (
+	PlacingStatus   Status = "placing"
+	WorkingStatus   Status = "working"
+	CancelledStatus Status = "cancelled"
+	PendingStatus   Status = "pending"
+	FilledStatus    Status = "filled"
+	RejectedStatus  Status = "rejected"
+)
 
 type OrderFill struct {
 	Quantity string `json:"quantity"`
@@ -315,9 +326,9 @@ func (a Api) GetOrder(orderID string) (*OrderV3, error) {
 	return &result, nil
 }
 
-func (a Api) ReplaceOrder(orderID string, req ReplaceOrderPayload) (*ReplaceOrderResponse, error) {
+func (a Api) ReplaceOrder(orderID string, req ReplaceOrderPayload) (*OrderV3, error) {
 
-	var result *ReplaceOrderResponse
+	var result *OrderV3
 	var errRes []ErrorResponse
 
 	resp, err := a.cli.R().

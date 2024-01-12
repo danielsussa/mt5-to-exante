@@ -8,10 +8,21 @@ import (
 )
 
 type OrderState struct {
-	d *diskv.Diskv
+	d        *diskv.Diskv
+	orderMap map[string]OrderGroup
+}
+
+func (os *OrderState) List() []OrderGroup {
+	l := make([]OrderGroup, 0)
+	for _, val := range os.orderMap {
+		l = append(l, val)
+	}
+
+	return l
 }
 
 type OrderGroup struct {
+	Ticket     string
 	Order      OrderDB
 	OcoGroup   string
 	StopLoss   *OrderDB
@@ -20,6 +31,7 @@ type OrderGroup struct {
 
 type OrderDB struct {
 	ID         string
+	Price      string
 	Quantity   string
 	Side       string
 	Duration   string
@@ -34,6 +46,17 @@ func NewOrderGroup() OrderGroup {
 	}
 }
 
+func NewOrderGroupWithTicket(ticket string) OrderGroup {
+	return OrderGroup{
+		Ticket:   ticket,
+		OcoGroup: uuid.NewString(),
+	}
+}
+
+func NewNoDisk() *OrderState {
+	return &OrderState{orderMap: map[string]OrderGroup{}}
+}
+
 func New(path string) (*OrderState, error) {
 	d := diskv.New(diskv.Options{
 		BasePath:     fmt.Sprintf("%s/.db", path),
@@ -46,33 +69,47 @@ func New(path string) (*OrderState, error) {
 		return nil, err
 	}
 
-	has := d.Has("test")
-	if !has {
-		return nil, fmt.Errorf("error creatind .db")
+	has := d.Has("root")
+	if has {
+		rootB, err := d.Read("root")
+		if err != nil {
+			return nil, err
+		}
+
+		var orderMap map[string]OrderGroup
+		err = json.Unmarshal(rootB, &orderMap)
+		if err != nil {
+			return nil, err
+		}
+
+		return &OrderState{d: d, orderMap: orderMap}, err
 	}
 
-	return &OrderState{d: d}, nil
+	return &OrderState{d: d, orderMap: make(map[string]OrderGroup)}, nil
 }
 
 func (os *OrderState) Upsert(ticketID string, order OrderGroup) {
-	b, _ := json.Marshal(order)
-	_ = os.d.Write(ticketID, b)
+	os.orderMap[ticketID] = order
+	//b, _ := json.Marshal(order)
+	//_ = os.d.Write(ticketID, b)
 }
 
 func (os *OrderState) Delete(ticketID string) {
-	_ = os.d.Erase(ticketID)
+	delete(os.orderMap, ticketID)
+	//_ = os.d.Erase(ticketID)
 }
 
 func (os *OrderState) Get(ticketID string) (OrderGroup, bool) {
-	if !os.d.Has(ticketID) {
-		return OrderGroup{}, false
+	for ticket, val := range os.orderMap {
+		if ticket == ticketID {
+			return val, true
+		}
 	}
-	b, err := os.d.Read(ticketID)
-	if err != nil {
-		panic(err)
-	}
-	var order OrderGroup
-	_ = json.Unmarshal(b, &order)
 
-	return order, true
+	return OrderGroup{}, false
+}
+
+func (os *OrderState) Flush() error {
+	b, _ := json.Marshal(os.orderMap)
+	return os.d.Write("root", b)
 }

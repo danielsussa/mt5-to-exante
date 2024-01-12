@@ -7,10 +7,10 @@ import (
 )
 
 type Api struct {
-	data data
+	Data Data
 }
 
-type data struct {
+type Data struct {
 	Description string          `yaml:"description"`
 	Exchanges   []DataExchanges `json:"exchanges"`
 }
@@ -27,17 +27,17 @@ func New(path string) (*Api, error) {
 		return nil, fmt.Errorf("cannot find exchange file")
 	}
 
-	var d data
+	var d Data
 	err = yaml.Unmarshal(dat, &d)
 	if err != nil {
 		return nil, fmt.Errorf("error to convert exchange file: %s", err.Error())
 	}
 
-	return &Api{data: d}, err
+	return &Api{Data: d}, err
 }
 
 func (a Api) GetByMTValue(mtval string) (DataExchanges, bool) {
-	for _, d := range a.data.Exchanges {
+	for _, d := range a.Data.Exchanges {
 		if d.MetaTrader == mtval {
 			return d, true
 		}

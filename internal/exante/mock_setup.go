@@ -41,6 +41,7 @@ func NewMock(ordersList []OrderV3) *ApiMock {
 						Instrument: req.Instrument,
 						OrderType:  req.OrderType,
 						LimitPrice: req.LimitPrice,
+						OcoGroup:   req.OcoGroup,
 					},
 					OrderID:   doneParentOrder,
 					ClientTag: req.ClientTag,
@@ -48,11 +49,14 @@ func NewMock(ordersList []OrderV3) *ApiMock {
 			}
 
 			ocoGroup := uuid.NewString()
+			if len(req.OcoGroup) > 0 {
+				ocoGroup = req.OcoGroup
+			}
 
 			if req.TakeProfit != nil {
 				orders = append(orders, OrderV3{
 					OrderState: OrderState{
-						Status: convertTypeToStatus(req.OrderType),
+						Status: PendingStatus,
 					},
 					OrderParameters: OrderParameters{
 						OcoGroup:       ocoGroup,
@@ -67,7 +71,7 @@ func NewMock(ordersList []OrderV3) *ApiMock {
 			if req.StopLoss != nil {
 				orders = append(orders, OrderV3{
 					OrderState: OrderState{
-						Status: convertTypeToStatus(req.OrderType),
+						Status: PendingStatus,
 					},
 					OrderParameters: OrderParameters{
 						OcoGroup:       ocoGroup,

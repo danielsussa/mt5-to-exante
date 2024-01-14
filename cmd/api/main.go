@@ -54,7 +54,7 @@ func main() {
 	e := echo.New()
 
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
-		if time.Now().After(time.Date(2024, 12, 25, 10, 0, 0, 0, time.UTC)) {
+		if time.Now().After(time.Date(2024, 02, 01, 10, 0, 0, 0, time.UTC)) {
 			return func(c echo.Context) error {
 				return c.String(400, "nok")
 			}

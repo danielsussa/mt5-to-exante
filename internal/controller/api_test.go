@@ -3,177 +3,395 @@ package controller
 import (
 	"github.com/danielsussa/mt5-to-exante/internal/exante"
 	"github.com/danielsussa/mt5-to-exante/internal/exchanges"
-	"github.com/danielsussa/mt5-to-exante/internal/orderdb"
+	"github.com/danielsussa/mt5-to-exante/internal/utils"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"testing"
-	"time"
 )
 
-func convertTypeToStatus(ot string) exante.Status {
-	if ot == "market" {
-		return exante.FilledStatus
-	}
-	return exante.WorkingStatus
-}
-
 func TestApi(t *testing.T) {
-	t.Run("simple complete flow", func(t *testing.T) {
-		apiMock := exante.ApiMock{
-			CancelOrderFunc: nil,
-			GetOrderFunc:    nil,
-			ReplaceOrderFunc: func(orderID string, req exante.ReplaceOrderPayload) (*exante.OrderV3, error) {
-				return &exante.OrderV3{
-					OrderParameters: exante.OrderParameters{
-						LimitPrice: req.Parameters.LimitPrice,
-						StopPrice:  req.Parameters.StopPrice,
-					},
-					OrderID: orderID,
-				}, nil
-			},
-			PlaceOrderV3Func: func(req *exante.OrderSentTypeV3) ([]exante.OrderV3, error) {
-
-				orders := make([]exante.OrderV3, 0)
-				orders = append(orders, exante.OrderV3{
-					OrderState: exante.OrderState{
-						Status: convertTypeToStatus(req.OrderType),
-					},
-					OrderParameters: exante.OrderParameters{
-						Quantity:       req.Quantity,
-						Instrument:     req.Instrument,
-						OrderType:      req.OrderType,
-						IfDoneParentID: req.IfDoneParentID,
-						LimitPrice:     req.LimitPrice,
-					},
-					OrderID: uuid.NewString(),
-				})
-
-				ocoGroup := uuid.NewString()
-
-				if req.TakeProfit != nil {
-					orders = append(orders, exante.OrderV3{
-						OrderState: exante.OrderState{
-							Status: convertTypeToStatus(req.OrderType),
-						},
-						OrderParameters: exante.OrderParameters{
-							OcoGroup:   ocoGroup,
-							LimitPrice: *req.TakeProfit,
-							OrderType:  "limit",
-						},
-						OrderID: uuid.NewString(),
-					})
-				}
-				if req.StopLoss != nil {
-					orders = append(orders, exante.OrderV3{
-						OrderState: exante.OrderState{
-							Status: convertTypeToStatus(req.OrderType),
-						},
-						OrderParameters: exante.OrderParameters{
-							OcoGroup:   ocoGroup,
-							OrderType:  "!limit",
-							LimitPrice: *req.StopLoss,
-							StopPrice:  *req.StopLoss,
-						},
-						OrderID: uuid.NewString(),
-					})
-				}
-
-				return orders, nil
-			},
-		}
-
-		db := orderdb.NewNoDisk()
-
-		exchange := exchanges.Api{
-			Data: exchanges.Data{
-				Description: "",
-				Exchanges: []exchanges.DataExchanges{
-					{
-						Exante:     "EUR/USD",
-						MetaTrader: "EURUSD",
-						PriceStep:  1,
-					},
+	exchange := exchanges.Api{
+		Data: exchanges.Data{
+			Description: "",
+			Exchanges: []exchanges.DataExchanges{
+				{
+					Exante:     "EUR/USD",
+					MetaTrader: "EURUSD",
+					PriceStep:  1,
 				},
 			},
+		},
+	}
+
+	t.Run("new position was created and there isn't any order on exante API", func(t *testing.T) {
+
+		exanteMock := exante.NewMock(make([]exante.OrderV3, 0))
+		c := New(exanteMock, exchange)
+
+		{ // the program started with a recent position, and a recent order is visible
+			err := c.Sync("acc-1", SyncRequest{
+				ActivePositions: []Mt5Position{
+					{Ticket: "1234", Symbol: "EURUSD", Volume: 1, TakeProfit: 2, StopLoss: 1, Price: 1.2},
+				},
+				ActiveOrders: nil,
+				RecentInactiveOrders: []Mt5Order{
+					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, Type: OrderTypeBuy, TakeProfit: 2, StopLoss: 1, Price: 1.2, State: OrderStateFilled},
+				},
+				RecentInactivePositions: []Mt5PositionHistory{
+					{Ticket: "1234", Entry: DealEntryIn},
+				},
+			})
+			assert.NoError(t, err)
+			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
+			assert.Len(t, activeOrder, 0)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			assert.Len(t, allOrders, 3)
+		}
+		{ // lets repeat the same action to check if nothing is deduplicated
+			err := c.Sync("acc-1", SyncRequest{
+				ActivePositions: []Mt5Position{
+					{Ticket: "1234", Symbol: "EURUSD", Volume: 1, TakeProfit: 2, StopLoss: 1, Price: 1.2},
+				},
+				ActiveOrders: nil,
+				RecentInactiveOrders: []Mt5Order{
+					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, Type: OrderTypeBuy, TakeProfit: 2, StopLoss: 1, Price: 1.2, State: OrderStateFilled},
+				},
+				RecentInactivePositions: []Mt5PositionHistory{
+					{Ticket: "1234", Entry: DealEntryIn},
+				},
+			})
+			assert.NoError(t, err)
+			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
+			assert.Len(t, activeOrder, 0)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			assert.Len(t, allOrders, 3)
+			assert.Equal(t, 1, exanteMock.TotalPlaceOrderV3)
+		}
+		{ // the recent order will disappear
+			err := c.Sync("acc-1", SyncRequest{
+				ActivePositions: []Mt5Position{
+					{Ticket: "1234", Symbol: "EURUSD", Volume: 1, TakeProfit: 2, StopLoss: 1, Price: 1.2},
+				},
+				ActiveOrders:         nil,
+				RecentInactiveOrders: []Mt5Order{},
+			})
+			assert.NoError(t, err)
+			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
+			assert.Len(t, activeOrder, 0)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			assert.Len(t, allOrders, 3)
+		}
+		{ // lets change the stop loss value
+			err := c.Sync("acc-1", SyncRequest{
+				ActivePositions: []Mt5Position{
+					{Ticket: "1234", Symbol: "EURUSD", Volume: 1, TakeProfit: 2.1, StopLoss: 1.1, Price: 1.2},
+				},
+				ActiveOrders:         nil,
+				RecentInactiveOrders: []Mt5Order{},
+			})
+			assert.NoError(t, err)
+			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
+			assert.Len(t, activeOrder, 0)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			assert.Len(t, allOrders, 3)
+			slOrder, _ := utils.GetStopLossOrder(allOrders)
+			assert.Equal(t, "1.1", slOrder.OrderParameters.StopPrice)
+			tpOrder, _ := utils.GetTakeProfitOrder(allOrders)
+			assert.Equal(t, "2.1", tpOrder.OrderParameters.LimitPrice)
+		}
+	})
+
+	t.Run("new order, add stops and cancel order", func(t *testing.T) {
+
+		exanteMock := exante.NewMock(make([]exante.OrderV3, 0))
+		c := New(exanteMock, exchange)
+
+		{ // the program started with a recent order
+			err := c.Sync("acc-1", SyncRequest{
+				ActivePositions: []Mt5Position{},
+				ActiveOrders: []Mt5Order{
+					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, Type: OrderTypeBuyLimit, TakeProfit: 2, Price: 1.2, State: OrderStatePlaced},
+				},
+			})
+			assert.NoError(t, err)
+			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
+			assert.Len(t, activeOrder, 2)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			assert.Len(t, allOrders, 2)
+		}
+		{ // add stop loss
+			err := c.Sync("acc-1", SyncRequest{
+				ActivePositions: []Mt5Position{},
+				ActiveOrders: []Mt5Order{
+					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, Type: OrderTypeBuyLimit, StopLoss: 1, TakeProfit: 2, Price: 1.2, State: OrderStatePlaced},
+				},
+			})
+			assert.NoError(t, err)
+			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
+			assert.Len(t, activeOrder, 3)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			assert.Len(t, allOrders, 3)
+		}
+		{ // remove take profit
+			err := c.Sync("acc-1", SyncRequest{
+				ActivePositions: []Mt5Position{},
+				ActiveOrders: []Mt5Order{
+					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, Type: OrderTypeBuyLimit, StopLoss: 1, Price: 1.2, State: OrderStatePlaced},
+				},
+			})
+			assert.NoError(t, err)
+			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
+			assert.Len(t, activeOrder, 2)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			assert.Len(t, allOrders, 3)
+		}
+		{ // remove order
+			err := c.Sync("acc-1", SyncRequest{
+				ActivePositions: []Mt5Position{},
+				RecentInactiveOrders: []Mt5Order{
+					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, Type: OrderTypeBuyLimit, StopLoss: 1, Price: 1.2, State: OrderStateCancelled},
+				},
+				ActiveOrders: []Mt5Order{},
+			})
+			assert.NoError(t, err)
+			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
+			assert.Len(t, activeOrder, 0)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			assert.Len(t, allOrders, 3)
+		}
+	})
+
+	t.Run("new order and become a position", func(t *testing.T) {
+
+		exanteMock := exante.NewMock(make([]exante.OrderV3, 0))
+		c := New(exanteMock, exchange)
+
+		{ // the program started with a recent order
+			err := c.Sync("acc-1", SyncRequest{
+				ActivePositions: []Mt5Position{},
+				ActiveOrders: []Mt5Order{
+					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, Type: OrderTypeBuyLimit, TakeProfit: 2, Price: 1.2, State: OrderStatePlaced},
+				},
+			})
+			assert.NoError(t, err)
+			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
+			assert.Len(t, activeOrder, 2)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			assert.Len(t, allOrders, 2)
+		}
+		{ // order become a position
+			err := c.Sync("acc-1", SyncRequest{
+				ActivePositions: []Mt5Position{
+					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, TakeProfit: 2, Price: 1.2},
+				},
+				RecentInactiveOrders: []Mt5Order{
+					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, Type: OrderTypeBuyLimit, TakeProfit: 2, Price: 1.2, State: OrderStateFilled},
+				},
+			})
+			assert.NoError(t, err)
+			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
+			assert.Len(t, activeOrder, 2) // order will be executed soon
+			assert.Equal(t, 1, exanteMock.TotalPlaceOrderV3)
 		}
 
-		c := New(&apiMock, db, exchange)
+	})
 
-		tNow := time.Now()
-		{
-			err := c.Sync(tNow, "acc-1", SyncRequest{Orders: []Mt5Order{
-				{
-					Symbol:    "EURUSD",
-					Ticket:    "4321",
-					Volume:    100,
-					Type:      OrderTypeBuy,
-					StopLoss:  9,
-					Price:     10,
-					State:     OrderStatePlaced,
-					UpdatedAt: tNow,
+	t.Run("has already a recent position on MT5 and a position on EXANTE", func(t *testing.T) {
+		exanteMock := exante.NewMock([]exante.OrderV3{
+			{
+				OrderState: exante.OrderState{
+					Status: exante.FilledStatus,
 				},
-			}})
-			assert.NoError(t, err)
-		}
-		{
-			// call second time shouldn't call exante, only filled order
-			err := c.Sync(tNow, "acc-1", SyncRequest{Positions: []Mt5Order{
-				{
-					Symbol:    "EURUSD",
-					Ticket:    "4321",
-					Volume:    100,
-					Type:      OrderTypeBuy,
-					StopLoss:  9,
-					Price:     10,
-					State:     OrderStateFilled,
-					UpdatedAt: tNow,
+				OrderID:   uuid.NewString(),
+				ClientTag: "1234",
+			},
+		})
+		c := New(exanteMock, exchange)
+		{ // should not add another order on exante
+			err := c.Sync("acc-1", SyncRequest{
+				ActivePositions: []Mt5Position{
+					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, StopLoss: 1, Price: 1.2},
 				},
-			}})
-			assert.NoError(t, err)
-		}
-		{
-			// change stop loss, should replace request
-			err := c.Sync(tNow, "acc-1", SyncRequest{Positions: []Mt5Order{
-				{
-					Symbol:    "EURUSD",
-					Ticket:    "4321",
-					Volume:    100,
-					Type:      OrderTypeBuy,
-					StopLoss:  8,
-					Price:     10,
-					State:     OrderStateFilled,
-					UpdatedAt: tNow,
+				RecentInactiveOrders: []Mt5Order{
+					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, Type: OrderTypeBuy, StopLoss: 1, Price: 1.2, State: OrderStateFilled},
 				},
-			}})
+			})
 			assert.NoError(t, err)
+			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
+			assert.Len(t, activeOrder, 0)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			assert.Len(t, allOrders, 1)
 		}
-		{
-			order, _ := db.Get("4321")
-			assert.Equal(t, "8.00000", order.StopLoss.StopPrice)
-		}
-		{
-			// change take profit, should call exante
-			err := c.Sync(tNow, "acc-1", SyncRequest{Positions: []Mt5Order{
-				{
-					Symbol:     "EURUSD",
-					Ticket:     "4321",
-					Volume:     100,
-					Type:       OrderTypeBuy,
-					TakeProfit: 12,
-					StopLoss:   8,
-					Price:      10,
-					State:      OrderStateFilled,
-					UpdatedAt:  tNow,
-				},
-			}})
-			assert.NoError(t, err)
-		}
-		{
-			order, _ := db.Get("4321")
-			assert.Equal(t, "8.00000", order.StopLoss.StopPrice)
-			assert.Equal(t, "12.00000", order.TakeProfit.Price)
-		}
+	})
 
-		assert.Equal(t, 3, apiMock.TotalCalls())
+	t.Run("has already a recent position on MT5 and a position on EXANTE with open stop order", func(t *testing.T) {
+		parentOrderId := uuid.NewString()
+		exanteMock := exante.NewMock([]exante.OrderV3{
+			{
+				OrderState: exante.OrderState{
+					Status: exante.FilledStatus,
+				},
+				OrderID:   parentOrderId,
+				ClientTag: "1234",
+			},
+			{
+				OrderState: exante.OrderState{
+					Status: exante.WorkingStatus,
+				},
+				OrderParameters: exante.OrderParameters{
+					IfDoneParentID: parentOrderId,
+				},
+				OrderID:   uuid.NewString(),
+				ClientTag: "1234",
+			},
+		})
+		c := New(exanteMock, exchange)
+		{ // should not add another order on exante
+			err := c.Sync("acc-1", SyncRequest{
+				ActivePositions: []Mt5Position{
+					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, StopLoss: 1, Price: 1.2},
+				},
+				RecentInactiveOrders: []Mt5Order{
+					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, Type: OrderTypeBuy, StopLoss: 1, Price: 1.2, State: OrderStateFilled},
+				},
+			})
+			assert.NoError(t, err)
+			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
+			assert.Len(t, activeOrder, 1)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			assert.Len(t, allOrders, 2)
+		}
+	})
+
+	t.Run("has order on Exante, and CLOSE the deal on MT5, should cancel order and close position", func(t *testing.T) {
+		parentOrderId := uuid.NewString()
+		exanteMock := exante.NewMock([]exante.OrderV3{
+			{
+				OrderState: exante.OrderState{
+					Status: exante.FilledStatus,
+				},
+				OrderParameters: exante.OrderParameters{
+					Side: "buy",
+				},
+				OrderID:   parentOrderId,
+				ClientTag: "1234",
+			},
+			{
+				OrderState: exante.OrderState{
+					Status: exante.WorkingStatus,
+				},
+				OrderParameters: exante.OrderParameters{
+					IfDoneParentID: parentOrderId,
+					Side:           "sell",
+					OrderType:      "stop",
+					OcoGroup:       uuid.NewString(),
+				},
+				OrderID:   uuid.NewString(),
+				ClientTag: "1234",
+			},
+		})
+		c := New(exanteMock, exchange)
+		{ // should not add another order on exante
+			err := c.Sync("acc-1", SyncRequest{
+				ActivePositions: []Mt5Position{},
+				RecentInactiveOrders: []Mt5Order{
+					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, Type: OrderTypeSell, StopLoss: 1, Price: 1.2, State: OrderStateFilled},
+				},
+				RecentInactivePositions: []Mt5PositionHistory{
+					{Ticket: "1234", Entry: DealEntryOut},
+				},
+			})
+			assert.NoError(t, err)
+			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
+			assert.Len(t, activeOrder, 0)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			assert.Len(t, allOrders, 3)
+			assert.True(t, utils.IsPositionClosed(allOrders))
+		}
+	})
+
+	t.Run("has an open position without previews orders, close the position", func(t *testing.T) {
+		parentOrderId := uuid.NewString()
+		exanteMock := exante.NewMock([]exante.OrderV3{
+			{
+				OrderState: exante.OrderState{
+					Status: exante.FilledStatus,
+				},
+				OrderParameters: exante.OrderParameters{
+					Side: "buy",
+				},
+				OrderID:   parentOrderId,
+				ClientTag: "",
+			},
+		})
+		c := New(exanteMock, exchange)
+		{ // should not add another order on exante
+			err := c.Sync("acc-1", SyncRequest{
+				ActivePositions: []Mt5Position{},
+				RecentInactiveOrders: []Mt5Order{
+					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, Type: OrderTypeSell, StopLoss: 1, Price: 1.2, State: OrderStateFilled},
+				},
+			})
+			assert.NoError(t, err)
+			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
+			assert.Len(t, activeOrder, 0)
+			assert.Equal(t, exanteMock.TotalPlaceOrderV3, 0)
+		}
+	})
+
+	t.Run("open a position and closes soon", func(t *testing.T) {
+		exanteMock := exante.NewMock([]exante.OrderV3{})
+		c := New(exanteMock, exchange)
+		{ // should open a new position
+			err := c.Sync("acc-1", SyncRequest{
+				ActivePositions: []Mt5Position{
+					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, StopLoss: 1, Price: 1.2},
+				},
+				RecentInactiveOrders: []Mt5Order{
+					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, Type: OrderTypeBuy, Price: 1.2, State: OrderStateFilled},
+				},
+				RecentInactivePositions: []Mt5PositionHistory{
+					{Ticket: "1234", Entry: DealEntryIn},
+				},
+			})
+			assert.NoError(t, err)
+			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
+			assert.Len(t, activeOrder, 0)
+			assert.Equal(t, 1, exanteMock.TotalPlaceOrderV3)
+		}
+		{ // closing the position
+			err := c.Sync("acc-1", SyncRequest{
+				ActivePositions: []Mt5Position{},
+				RecentInactiveOrders: []Mt5Order{
+					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, Type: OrderTypeBuy, Price: 1.2, State: OrderStateFilled},
+					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, Type: OrderTypeSell, Price: 1.2, State: OrderStateFilled},
+				},
+				RecentInactivePositions: []Mt5PositionHistory{
+					{Ticket: "1234", Entry: DealEntryIn},
+					{Ticket: "1234", Entry: DealEntryOut},
+				},
+			})
+			assert.NoError(t, err)
+			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
+			assert.Len(t, activeOrder, 0)
+			assert.Equal(t, 2, exanteMock.TotalPlaceOrderV3)
+		}
+		{ // should not change anything
+			err := c.Sync("acc-1", SyncRequest{
+				ActivePositions: []Mt5Position{},
+				RecentInactiveOrders: []Mt5Order{
+					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, Type: OrderTypeBuy, Price: 1.2, State: OrderStateFilled},
+					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, Type: OrderTypeSell, Price: 1.2, State: OrderStateFilled},
+				},
+				RecentInactivePositions: []Mt5PositionHistory{
+					{Ticket: "1234", Entry: DealEntryIn},
+					{Ticket: "1234", Entry: DealEntryOut},
+				},
+			})
+			assert.NoError(t, err)
+			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
+			assert.Len(t, activeOrder, 0)
+			assert.Equal(t, 2, exanteMock.TotalPlaceOrderV3)
+		}
 	})
 }

@@ -41,7 +41,7 @@ func main() {
 		os.Getenv("SHARED_KEY"),
 	)
 
-	c := controller.New(exanteApi, orderState, *exchangeApi)
+	c := controller.New(exanteApi, *exchangeApi)
 
 	h := api{
 		accountID:   os.Getenv("ACCOUNT_ID"),
@@ -364,8 +364,7 @@ func (a api) sync(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	_ = a.controller.Sync(time.Now(), a.accountID, *req)
-	_ = a.controller.Flush()
+	_ = a.controller.Sync(a.accountID, *req)
 
 	return c.JSON(http.StatusOK, echo.Map{})
 }

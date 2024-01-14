@@ -3,6 +3,6 @@ exchanges:
   - metaTrader: "EURUSD"
     exante: "EUR/USD.E.FX"
     priceStep: 1
-  - metaTrader: "BCHUSD"
-    exante: "BCH.USD"
+  - metaTrader: "BTCUSD"
+    exante: "BTC.USD"
     priceStep: 1

@@ -297,6 +297,36 @@ func (a Api) GetActiveOrdersV3() (OrdersV3, error) {
 	return result, nil
 }
 
+func (a Api) GetOrdersByLimitV3(limit int) (OrdersV3, error) {
+
+	var result OrdersV3
+	var errRes []ErrorResponse
+
+	resp, err := a.cli.R().
+		SetResult(&result).
+		SetError(&errRes).
+		SetQueryParam("limit", fmt.Sprintf("%d", limit)).
+		SetHeader("Authorization", a.Bearer()).
+		Get(fmt.Sprintf("%s/trade/3.0/orders", a.BaseURL))
+
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode() >= http.StatusInternalServerError {
+		return nil, fmt.Errorf("internal server error")
+	}
+
+	if resp.IsError() {
+		if len(errRes) == 0 {
+			return nil, fmt.Errorf("error: %s", string(resp.Body()))
+		}
+		return nil, errRes[0]
+	}
+
+	return result, nil
+}
+
 func (a Api) GetOrder(orderID string) (*OrderV3, error) {
 
 	var result OrderV3

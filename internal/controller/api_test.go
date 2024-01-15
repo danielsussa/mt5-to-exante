@@ -315,6 +315,48 @@ func TestApi(t *testing.T) {
 		}
 	})
 
+	t.Run("has a open position, exante fills SL order but MT5 don't", func(t *testing.T) {
+		parentOrderId := uuid.NewString()
+		exanteOrders := []exante.OrderV3{
+			{
+				OrderState: exante.OrderState{
+					Status: exante.FilledStatus,
+				},
+				OrderID:   parentOrderId,
+				ClientTag: "1234",
+			},
+			{
+				OrderState: exante.OrderState{
+					Status: exante.FilledStatus,
+				},
+				OrderParameters: exante.OrderParameters{
+					OcoGroup:       "oco-1",
+					OrderType:      "stop",
+					IfDoneParentID: parentOrderId,
+				},
+				OrderID:   uuid.NewString(),
+				ClientTag: "1234",
+			},
+		}
+		exanteMock := exante.NewMock(exanteOrders)
+		c := New(exanteMock, exchange)
+
+		{ // the status is filled on EXANTE but remains the same in MT5, shouldnt do anything
+
+			err := c.Sync("acc-1", SyncRequest{
+				ActivePositions: []Mt5Position{
+					{Symbol: "EURUSD", Ticket: "1234", PositionTicket: "1234", Volume: 1, StopLoss: 1, Price: 1.2},
+				},
+			})
+			assert.NoError(t, err)
+			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
+			assert.Len(t, activeOrder, 0)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			assert.Len(t, allOrders, 2)
+			assert.Equal(t, 0, exanteMock.TotalPlaceOrderV3)
+		}
+	})
+
 	t.Run("has already a recent position on MT5 and a position on EXANTE with open stop order", func(t *testing.T) {
 		parentOrderId := uuid.NewString()
 		exanteMock := exante.NewMock([]exante.OrderV3{

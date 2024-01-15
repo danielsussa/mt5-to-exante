@@ -2,7 +2,7 @@ description: "Local Exchanges to avoid conversions and further calls to Exante A
 exchanges:
   - metaTrader: "EURUSD"
     exante: "EUR/USD.E.FX"
-    priceStep: 1
+    priceStep: 10000
   - metaTrader: "BTCUSD"
     exante: "BTC.USD"
     priceStep: 1

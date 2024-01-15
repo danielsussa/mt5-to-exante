@@ -179,6 +179,7 @@ func (a *Api) Sync(accountID string, req SyncRequest) error {
 			if err != nil {
 				return err
 			}
+			fmt.Println(fmt.Sprintf("[%s] POS(HIST) > ENTRY_IN > PLACE", currentMT5OldPosition.PositionTicket))
 		}
 
 		// deal entry OUT with market order
@@ -199,23 +200,29 @@ func (a *Api) Sync(accountID string, req SyncRequest) error {
 
 			tpOrder, hasTpOrder := utils.GetTakeProfitOrder(exanteOrders)
 			if hasTpOrder {
-				err = a.exanteApi.CancelOrder(tpOrder.OrderID)
+				err = a.cancelOrder(tpOrder.OrderID)
 				if err != nil {
 					return err
 				}
+				fmt.Println(fmt.Sprintf("[%s] POS(HIST) > ENTRY_OUT > CANCEL TP", currentMT5OldPosition.PositionTicket))
 			}
 			slOrder, hasSLOrder := utils.GetStopLossOrder(exanteOrders)
 			if hasSLOrder {
-				err = a.exanteApi.CancelOrder(slOrder.OrderID)
+				err = a.cancelOrder(slOrder.OrderID)
 				if err != nil {
 					return err
 				}
+				fmt.Println(fmt.Sprintf("[%s] POS(HIST) > ENTRY_OUT > CANCEL SL", currentMT5OldPosition.PositionTicket))
+
 			}
 
 			_, err = a.closePosition(accountID, originatedMT5Order)
 			if err != nil {
 				return err
 			}
+
+			fmt.Println(fmt.Sprintf("[%s] POS(HIST) > ENTRY_OUT > CANCEL", currentMT5OldPosition.PositionTicket))
+
 		}
 
 		a.appendRequest(currentMT5OldPosition)
@@ -251,17 +258,20 @@ func (a *Api) Sync(accountID string, req SyncRequest) error {
 				if err != nil {
 					return err
 				}
+				fmt.Println(fmt.Sprintf("[%s] POS(ACTIVE) > PLACE SL", currentMT5Position.PositionTicket))
 			} else if hasSlOrder && currentMT5Position.StopLoss == 0 {
 				// has to remove take profit
-				err = a.exanteApi.CancelOrder(slOrder.OrderID)
+				err = a.cancelOrder(slOrder.OrderID)
 				if err != nil {
 					return err
 				}
-			} else if hasSlOrder && slOrder.OrderParameters.LimitPrice != utils.ConvertNDecimals(currentMT5Position.StopLoss) {
+				fmt.Println(fmt.Sprintf("[%s] POS(ACTIVE) > CANCEL SL", currentMT5Position.PositionTicket))
+			} else if hasSlOrder && slOrder.OrderParameters.StopPrice != utils.ConvertNDecimals(currentMT5Position.StopLoss) {
 				err = a.replaceSLOrder(currentMT5Position.StopLoss, slOrder.OrderID)
 				if err != nil {
 					return err
 				}
+				fmt.Println(fmt.Sprintf("[%s] POS(ACTIVE) > REPLACE SL", currentMT5Position.PositionTicket))
 			}
 		}
 
@@ -275,17 +285,20 @@ func (a *Api) Sync(accountID string, req SyncRequest) error {
 				if err != nil {
 					return err
 				}
+				fmt.Println(fmt.Sprintf("[%s] POS(ACTIVE) > PLACE TP", currentMT5Position.PositionTicket))
 			} else if hasTpOrder && currentMT5Position.TakeProfit == 0 {
 				// has to remove take profit
-				err = a.exanteApi.CancelOrder(tpOrder.OrderID)
+				err = a.cancelOrder(tpOrder.OrderID)
 				if err != nil {
 					return err
 				}
+				fmt.Println(fmt.Sprintf("[%s] POS(ACTIVE) > CANCEL TP", currentMT5Position.PositionTicket))
 			} else if hasTpOrder && tpOrder.OrderParameters.LimitPrice != utils.ConvertNDecimals(currentMT5Position.TakeProfit) {
 				err = a.replaceTPOrder(currentMT5Position.TakeProfit, tpOrder.OrderID)
 				if err != nil {
 					return err
 				}
+				fmt.Println(fmt.Sprintf("[%s] POS(ACTIVE) > REPLACE TP", currentMT5Position.PositionTicket))
 			}
 		}
 
@@ -311,6 +324,7 @@ func (a *Api) Sync(accountID string, req SyncRequest) error {
 			if err != nil {
 				return err
 			}
+			fmt.Println(fmt.Sprintf("[%s] ORD(ACTIVE) > PLACE ORDER", currentMT5Order.Ticket))
 			a.appendRequest(currentMT5Order)
 			continue
 		}
@@ -327,6 +341,7 @@ func (a *Api) Sync(accountID string, req SyncRequest) error {
 				if err != nil {
 					return err
 				}
+				fmt.Println(fmt.Sprintf("[%s] ORD(ACTIVE) > REPLACE ORDER PRICE", currentMT5Order.Ticket))
 			}
 		}
 
@@ -340,17 +355,20 @@ func (a *Api) Sync(accountID string, req SyncRequest) error {
 				if err != nil {
 					return err
 				}
+				fmt.Println(fmt.Sprintf("[%s] ORD(ACTIVE) > PLACE TP", currentMT5Order.Ticket))
 			} else if hasTpOrder && currentMT5Order.TakeProfit == 0 {
 				// has to remove take profit
-				err = a.exanteApi.CancelOrder(tpOrder.OrderID)
+				err = a.cancelOrder(tpOrder.OrderID)
 				if err != nil {
 					return err
 				}
+				fmt.Println(fmt.Sprintf("[%s] ORD(ACTIVE) > CANCEL TP", currentMT5Order.Ticket))
 			} else if hasTpOrder && tpOrder.OrderParameters.LimitPrice != utils.ConvertNDecimals(currentMT5Order.TakeProfit) {
 				err = a.replaceTPOrder(currentMT5Order.TakeProfit, tpOrder.OrderID)
 				if err != nil {
 					return err
 				}
+				fmt.Println(fmt.Sprintf("[%s] ORD(ACTIVE) > REPLACE TP", currentMT5Order.Ticket))
 			}
 		}
 
@@ -364,17 +382,20 @@ func (a *Api) Sync(accountID string, req SyncRequest) error {
 				if err != nil {
 					return err
 				}
+				fmt.Println(fmt.Sprintf("[%s] ORD(ACTIVE) > PLACE SL", currentMT5Order.Ticket))
 			} else if hasSlOrder && currentMT5Order.StopLoss == 0 {
 				// has to remove take profit
-				err = a.exanteApi.CancelOrder(slOrder.OrderID)
+				err = a.cancelOrder(slOrder.OrderID)
 				if err != nil {
 					return err
 				}
+				fmt.Println(fmt.Sprintf("[%s] ORD(ACTIVE) > CANCEL SL", currentMT5Order.Ticket))
 			} else if hasSlOrder && slOrder.OrderParameters.LimitPrice != utils.ConvertNDecimals(currentMT5Order.StopLoss) {
 				err = a.replaceSLOrder(currentMT5Order.StopLoss, slOrder.OrderID)
 				if err != nil {
 					return err
 				}
+				fmt.Println(fmt.Sprintf("[%s] ORD(ACTIVE) > REPLACE SL", currentMT5Order.Ticket))
 			}
 		}
 
@@ -398,15 +419,27 @@ func (a *Api) Sync(accountID string, req SyncRequest) error {
 		}
 
 		if currentMT5InactiveOrder.State == OrderStateCancelled {
-			err := a.exanteApi.CancelOrder(exanteParentOrder.OrderID)
+			err := a.cancelOrder(exanteParentOrder.OrderID)
 			if err != nil {
 				return err
 			}
+			fmt.Println(fmt.Sprintf("[%s] ORD(HIST) > CANCEL ORDER", currentMT5InactiveOrder.Ticket))
 		}
 
 		a.appendRequest(currentMT5InactiveOrder)
 	}
 
+	return nil
+}
+
+func (a *Api) cancelOrder(orderID string) error {
+	err := a.exanteApi.CancelOrder(orderID)
+	if err != nil {
+		if strings.Contains(err.Error(), "Unable to modify") {
+			return nil
+		}
+		return err
+	}
 	return nil
 }
 
@@ -514,7 +547,6 @@ func (a *Api) placeStopLoss(price float64, exanteOrder exante.OrderV3, ocoGroup 
 		Quantity:       exanteOrder.OrderParameters.Quantity,
 		Side:           utils.GetReverseOrderSide(exanteOrder.OrderParameters.Side),
 		StopPrice:      utils.ConvertNDecimalsOrNil(price),
-		StopLoss:       utils.ConvertNDecimalsOrNil(price),
 		Instrument:     exanteOrder.OrderParameters.SymbolId,
 		AccountID:      exanteOrder.AccountID,
 		IfDoneParentID: exanteOrder.OrderID,

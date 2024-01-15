@@ -7,7 +7,6 @@ import (
 	"github.com/go-resty/resty/v2"
 	"github.com/peterbourgon/diskv/v3"
 	"net/http"
-	"net/http/httputil"
 	"time"
 )
 
@@ -145,8 +144,8 @@ func (a Api) CancelOrder(orderID string) error {
 		return err
 	}
 
-	res, _ := httputil.DumpRequest(resp.Request.RawRequest, true)
-	fmt.Print(string(res))
+	//res, _ := httputil.DumpRequest(resp.Request.RawRequest, true)
+	//fmt.Print(string(res))
 
 	if resp.StatusCode() >= http.StatusInternalServerError {
 		return fmt.Errorf("internal server error")

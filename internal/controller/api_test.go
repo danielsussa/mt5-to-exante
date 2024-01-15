@@ -29,7 +29,7 @@ func TestApi(t *testing.T) {
 		c := New(exanteMock, exchange)
 
 		{ // the program started with a recent position, and a recent order is visible
-			err := c.Sync("acc-1", SyncRequest{
+			_, err := c.Sync("acc-1", SyncRequest{
 				ActivePositions: []Mt5Position{
 					{PositionTicket: "1234", Ticket: "1234", Symbol: "EURUSD", Volume: 1, TakeProfit: 2, StopLoss: 1, Price: 1.2},
 				},
@@ -48,7 +48,7 @@ func TestApi(t *testing.T) {
 			assert.Len(t, allOrders, 3)
 		}
 		{ // lets repeat the same action to check if nothing is deduplicated
-			err := c.Sync("acc-1", SyncRequest{
+			_, err := c.Sync("acc-1", SyncRequest{
 				ActivePositions: []Mt5Position{
 					{PositionTicket: "1234", Ticket: "1234", Symbol: "EURUSD", Volume: 1, TakeProfit: 2, StopLoss: 1, Price: 1.2},
 				},
@@ -68,7 +68,7 @@ func TestApi(t *testing.T) {
 			assert.Equal(t, 1, exanteMock.TotalPlaceOrderV3)
 		}
 		{ // the recent order will disappear
-			err := c.Sync("acc-1", SyncRequest{
+			_, err := c.Sync("acc-1", SyncRequest{
 				ActivePositions: []Mt5Position{
 					{PositionTicket: "1234", Ticket: "1234", Symbol: "EURUSD", Volume: 1, TakeProfit: 2, StopLoss: 1, Price: 1.2},
 				},
@@ -82,7 +82,7 @@ func TestApi(t *testing.T) {
 			assert.Len(t, allOrders, 3)
 		}
 		{ // lets change the stop loss value to 1.1 and 2.1
-			err := c.Sync("acc-1", SyncRequest{
+			_, err := c.Sync("acc-1", SyncRequest{
 				ActivePositions: []Mt5Position{
 					{PositionTicket: "1234", Ticket: "1234", Symbol: "EURUSD", Volume: 1, TakeProfit: 2.1, StopLoss: 1.1, Price: 1.2},
 				},
@@ -107,7 +107,7 @@ func TestApi(t *testing.T) {
 		c := New(exanteMock, exchange)
 
 		{ // the program started with a recent order
-			err := c.Sync("acc-1", SyncRequest{
+			_, err := c.Sync("acc-1", SyncRequest{
 				ActivePositions: []Mt5Position{},
 				ActiveOrders: []Mt5Order{
 					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, Type: OrderTypeBuyLimit, TakeProfit: 2, Price: 1.2, State: OrderStatePlaced},
@@ -120,7 +120,7 @@ func TestApi(t *testing.T) {
 			assert.Len(t, allOrders, 2)
 		}
 		{ // add stop loss
-			err := c.Sync("acc-1", SyncRequest{
+			_, err := c.Sync("acc-1", SyncRequest{
 				ActivePositions: []Mt5Position{},
 				ActiveOrders: []Mt5Order{
 					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, Type: OrderTypeBuyLimit, StopLoss: 1, TakeProfit: 2, Price: 1.2, State: OrderStatePlaced},
@@ -133,7 +133,7 @@ func TestApi(t *testing.T) {
 			assert.Len(t, allOrders, 3)
 		}
 		{ // remove take profit
-			err := c.Sync("acc-1", SyncRequest{
+			_, err := c.Sync("acc-1", SyncRequest{
 				ActivePositions: []Mt5Position{},
 				ActiveOrders: []Mt5Order{
 					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, Type: OrderTypeBuyLimit, StopLoss: 1, Price: 1.2, State: OrderStatePlaced},
@@ -145,8 +145,8 @@ func TestApi(t *testing.T) {
 			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
 			assert.Len(t, allOrders, 3)
 		}
-		{ // remove order
-			err := c.Sync("acc-1", SyncRequest{
+		{ // cancel order
+			_, err := c.Sync("acc-1", SyncRequest{
 				ActivePositions: []Mt5Position{},
 				RecentInactiveOrders: []Mt5Order{
 					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, Type: OrderTypeBuyLimit, StopLoss: 1, Price: 1.2, State: OrderStateCancelled},
@@ -167,7 +167,7 @@ func TestApi(t *testing.T) {
 		c := New(exanteMock, exchange)
 
 		{ // the program started with a recent order
-			err := c.Sync("acc-1", SyncRequest{
+			_, err := c.Sync("acc-1", SyncRequest{
 				ActivePositions: []Mt5Position{},
 				ActiveOrders: []Mt5Order{
 					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, Type: OrderTypeBuyLimit, Price: 1.2, State: OrderStatePlaced},
@@ -181,7 +181,7 @@ func TestApi(t *testing.T) {
 			assert.Equal(t, "1.2", activeOrder[0].OrderParameters.LimitPrice)
 		}
 		{ // change order price
-			err := c.Sync("acc-1", SyncRequest{
+			_, err := c.Sync("acc-1", SyncRequest{
 				ActivePositions: []Mt5Position{},
 				ActiveOrders: []Mt5Order{
 					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, Type: OrderTypeBuyLimit, Price: 1.1, State: OrderStatePlaced},
@@ -202,7 +202,7 @@ func TestApi(t *testing.T) {
 		c := New(exanteMock, exchange)
 
 		{ // the program started with a recent order
-			err := c.Sync("acc-1", SyncRequest{
+			_, err := c.Sync("acc-1", SyncRequest{
 				ActivePositions: []Mt5Position{},
 				ActiveOrders: []Mt5Order{
 					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, Type: OrderTypeBuyLimit, TakeProfit: 2, Price: 1.2, State: OrderStatePlaced},
@@ -215,7 +215,7 @@ func TestApi(t *testing.T) {
 			assert.Len(t, allOrders, 2)
 		}
 		{ // order become a position
-			err := c.Sync("acc-1", SyncRequest{
+			_, err := c.Sync("acc-1", SyncRequest{
 				ActivePositions: []Mt5Position{
 					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, TakeProfit: 2, Price: 1.2},
 				},
@@ -243,7 +243,7 @@ func TestApi(t *testing.T) {
 		})
 		c := New(exanteMock, exchange)
 		{ // should not add another order on exante
-			err := c.Sync("acc-1", SyncRequest{
+			_, err := c.Sync("acc-1", SyncRequest{
 				ActivePositions: []Mt5Position{
 					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, StopLoss: 1, Price: 1.2},
 				},
@@ -284,7 +284,7 @@ func TestApi(t *testing.T) {
 		})
 		c := New(exanteMock, exchange)
 		{
-			err := c.Sync("acc-1", SyncRequest{
+			_, err := c.Sync("acc-1", SyncRequest{
 				ActivePositions: []Mt5Position{
 					{Symbol: "EURUSD", Ticket: "1234", PositionTicket: "1234", Volume: 1, StopLoss: 1, Price: 1.2},
 				},
@@ -297,7 +297,7 @@ func TestApi(t *testing.T) {
 			assert.Equal(t, 0, exanteMock.TotalPlaceOrderV3)
 		}
 		{ // closed order by stop
-			err := c.Sync("acc-1", SyncRequest{
+			_, err := c.Sync("acc-1", SyncRequest{
 				ActivePositions: []Mt5Position{},
 				RecentInactiveOrders: []Mt5Order{
 					{Symbol: "EURUSD", Ticket: "1235", Volume: 1, Type: OrderTypeSell, Price: 1, State: OrderStateFilled},
@@ -343,7 +343,7 @@ func TestApi(t *testing.T) {
 
 		{ // the status is filled on EXANTE but remains the same in MT5, shouldnt do anything
 
-			err := c.Sync("acc-1", SyncRequest{
+			_, err := c.Sync("acc-1", SyncRequest{
 				ActivePositions: []Mt5Position{
 					{Symbol: "EURUSD", Ticket: "1234", PositionTicket: "1234", Volume: 1, StopLoss: 1, Price: 1.2},
 				},
@@ -380,7 +380,7 @@ func TestApi(t *testing.T) {
 		})
 		c := New(exanteMock, exchange)
 		{ // should not add another order on exante
-			err := c.Sync("acc-1", SyncRequest{
+			_, err := c.Sync("acc-1", SyncRequest{
 				ActivePositions: []Mt5Position{
 					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, StopLoss: 1, Price: 1.2},
 				},
@@ -425,7 +425,7 @@ func TestApi(t *testing.T) {
 		})
 		c := New(exanteMock, exchange)
 		{ // should not add another order on exante
-			err := c.Sync("acc-1", SyncRequest{
+			_, err := c.Sync("acc-1", SyncRequest{
 				ActivePositions: []Mt5Position{},
 				RecentInactiveOrders: []Mt5Order{
 					{Symbol: "EURUSD", Ticket: "1235", Volume: 1, Type: OrderTypeSell, StopLoss: 1, Price: 1.2, State: OrderStateFilled},
@@ -459,7 +459,7 @@ func TestApi(t *testing.T) {
 		})
 		c := New(exanteMock, exchange)
 		{ // should not add another order on exante
-			err := c.Sync("acc-1", SyncRequest{
+			_, err := c.Sync("acc-1", SyncRequest{
 				ActivePositions: []Mt5Position{},
 				RecentInactiveOrders: []Mt5Order{
 					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, Type: OrderTypeSell, StopLoss: 1, Price: 1.2, State: OrderStateFilled},
@@ -476,7 +476,7 @@ func TestApi(t *testing.T) {
 		exanteMock := exante.NewMock([]exante.OrderV3{})
 		c := New(exanteMock, exchange)
 		{ // should open a new position
-			err := c.Sync("acc-1", SyncRequest{
+			_, err := c.Sync("acc-1", SyncRequest{
 				ActivePositions: []Mt5Position{
 					{Symbol: "EURUSD", Ticket: "1234", PositionTicket: "1234", Volume: 1, StopLoss: 1, Price: 1.2},
 				},
@@ -493,7 +493,7 @@ func TestApi(t *testing.T) {
 			assert.Equal(t, 1, exanteMock.TotalPlaceOrderV3)
 		}
 		{ // closing the position
-			err := c.Sync("acc-1", SyncRequest{
+			_, err := c.Sync("acc-1", SyncRequest{
 				ActivePositions: []Mt5Position{},
 				RecentInactiveOrders: []Mt5Order{
 					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, Type: OrderTypeBuy, Price: 1.2, State: OrderStateFilled},
@@ -510,7 +510,7 @@ func TestApi(t *testing.T) {
 			assert.Equal(t, 2, exanteMock.TotalPlaceOrderV3)
 		}
 		{ // should not change anything
-			err := c.Sync("acc-1", SyncRequest{
+			_, err := c.Sync("acc-1", SyncRequest{
 				ActivePositions: []Mt5Position{},
 				RecentInactiveOrders: []Mt5Order{
 					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, Type: OrderTypeBuy, Price: 1.2, State: OrderStateFilled},
@@ -532,7 +532,7 @@ func TestApi(t *testing.T) {
 		exanteMock := exante.NewMock([]exante.OrderV3{})
 		c := New(exanteMock, exchange)
 		{ // should open a new position
-			err := c.Sync("acc-1", SyncRequest{
+			_, err := c.Sync("acc-1", SyncRequest{
 				ActivePositions: []Mt5Position{
 					{Symbol: "EURUSD", Ticket: "1234", PositionTicket: "1234", Volume: 1, StopLoss: 1, Price: 1.2},
 				},
@@ -549,7 +549,7 @@ func TestApi(t *testing.T) {
 			assert.Equal(t, 1, exanteMock.TotalPlaceOrderV3)
 		}
 		{ // add TP
-			err := c.Sync("acc-1", SyncRequest{
+			_, err := c.Sync("acc-1", SyncRequest{
 				ActivePositions: []Mt5Position{
 					{Symbol: "EURUSD", Ticket: "1234", PositionTicket: "1234", Volume: 1, StopLoss: 1, TakeProfit: 2, Price: 1.2},
 				},
@@ -566,7 +566,7 @@ func TestApi(t *testing.T) {
 			assert.Equal(t, 2, exanteMock.TotalPlaceOrderV3)
 		}
 		{ // check if no changes applied
-			err := c.Sync("acc-1", SyncRequest{
+			_, err := c.Sync("acc-1", SyncRequest{
 				ActivePositions: []Mt5Position{
 					{Symbol: "EURUSD", Ticket: "1234", PositionTicket: "1234", Volume: 1, StopLoss: 1, TakeProfit: 2, Price: 1.2},
 				},
@@ -597,7 +597,7 @@ func TestApi(t *testing.T) {
 		})
 		c := New(exanteMock, exchange)
 		{ // should only change take profit
-			err := c.Sync("acc-1", SyncRequest{
+			_, err := c.Sync("acc-1", SyncRequest{
 				ActivePositions: []Mt5Position{
 					{Symbol: "EURUSD", Ticket: "1234", PositionTicket: "1234", Volume: 1, TakeProfit: 2},
 				},

@@ -2,6 +2,11 @@ package main
 
 import (
 	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"time"
+
 	"github.com/danielsussa/mt5-to-exante/internal/controller"
 	"github.com/danielsussa/mt5-to-exante/internal/exante"
 	"github.com/danielsussa/mt5-to-exante/internal/exchanges"
@@ -9,15 +14,13 @@ import (
 	"github.com/danielsussa/mt5-to-exante/internal/utils"
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
-	"net/http"
-	"os"
-	"path/filepath"
-	"time"
 )
 
 func main() {
 	ex, _ := os.Executable()
 	exPath := filepath.Dir(ex)
+
+	fmt.Println("version: ff45e38f7754fc9fb152125ec7d2328dbb988158b")
 
 	err := godotenv.Load(fmt.Sprintf("%s/%s.env", exPath, os.Args[1]))
 	if err != nil {
@@ -53,15 +56,6 @@ func main() {
 
 	e := echo.New()
 
-	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
-		if time.Now().After(time.Date(2024, 02, 01, 10, 0, 0, 0, time.UTC)) {
-			return func(c echo.Context) error {
-				return c.String(400, "nok")
-			}
-		}
-		return next
-	})
-
 	e.GET("/health", func(c echo.Context) error {
 		fmt.Println("health")
 		return c.String(http.StatusOK, "ok")
@@ -70,6 +64,7 @@ func main() {
 	e.GET("/jwt", h.getJwt)
 	e.GET("/accounts", h.getAccounts)
 	e.POST("/sync", h.sync)
+	e.POST("/journal", h.journal)
 	e.Logger.Fatal(e.Start(":1323"))
 }
 
@@ -359,14 +354,19 @@ func (a api) closePosition(c echo.Context) error {
 }
 
 func (a api) sync(c echo.Context) error {
+	fmt.Println(fmt.Sprintf("%s - sync", time.Now().Format(time.RFC822Z)))
+
 	req := new(controller.SyncRequest)
 	if err := c.Bind(req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	_ = a.controller.Sync(a.accountID, *req)
+	res, err := a.controller.Sync(a.accountID, *req)
+	if err != nil {
+		fmt.Println("error processing sync: ", err.Error())
+	}
 
-	return c.JSON(http.StatusOK, echo.Map{})
+	return c.JSON(http.StatusOK, res)
 }
 
 func (a api) getOrder(c echo.Context) error {
@@ -396,4 +396,11 @@ func (a api) getOrders(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, orders)
+}
+
+func (a api) journal(c echo.Context) error {
+
+	return c.JSON(http.StatusOK, controller.SyncResponse{
+		JournalF: "dadadda\nnnndad\ndada",
+	})
 }

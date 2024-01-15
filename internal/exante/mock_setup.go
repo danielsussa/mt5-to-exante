@@ -85,6 +85,23 @@ func NewMock(ordersList []OrderV3) *ApiMock {
 				})
 			}
 
+			if req.StopPrice != nil {
+				orders = append(orders, OrderV3{
+					OrderState: OrderState{
+						Status: PendingStatus,
+					},
+					OrderParameters: OrderParameters{
+						OcoGroup:       ocoGroup,
+						OrderType:      "stop",
+						LimitPrice:     *req.StopPrice,
+						StopPrice:      *req.StopPrice,
+						IfDoneParentID: doneParentOrder,
+					},
+					OrderID:   uuid.NewString(),
+					ClientTag: req.ClientTag,
+				})
+			}
+
 			ordersList = append(ordersList, orders...)
 			return orders, nil
 		},

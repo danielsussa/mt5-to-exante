@@ -8,23 +8,10 @@
 #property link      "https://www.mql5.com"
 #property version   "1.00"
 #include <jason.mqh>
-input bool goLoop = false;
 //+------------------------------------------------------------------+
 //| Service program start function                                   |
 //+------------------------------------------------------------------+
 void OnStart(){
-   if (goLoop == false) {
-      CJAVal req;
-
-      AllOrdersRequest(&req);
-      AllPositionsRequest(&req);
-      AllHistoryOrdersRequest(&req);
-      AllHistoryPositionsRequest(&req);
-      Print(req.Serialize());
-      CJAVal action = callApi("http://127.0.0.1:1323/sync", &req);
-      return;
-   }
-
    while (true) {
       CJAVal req;
 
@@ -33,9 +20,13 @@ void OnStart(){
       AllHistoryOrdersRequest(&req);
       AllHistoryPositionsRequest(&req);
 
-      CJAVal action = callApi("http://127.0.0.1:1323/sync", &req);
+      CJAVal response = callApi("http://127.0.0.1:1323/sync", &req);
+      string journal = response["journalF"].ToStr();
+      if (StringLen(journal) > 0) {
+         Print(journal);
+      }
 
-      Sleep(2000);
+      Sleep(1000);
    }
 
 
@@ -133,7 +124,7 @@ void AllHistoryOrdersRequest(CJAVal* req) {
 
 void AllHistoryPositionsRequest(CJAVal* req) {
 
-   HistorySelect(TimeCurrent()-60, TimeCurrent());
+   HistorySelect(TimeCurrent()-600, TimeCurrent());
    ulong ticket=0;
    for(int i=0;i<HistoryDealsTotal();i++) {
       ResetLastError();
@@ -248,9 +239,9 @@ CJAVal callApi(string url, CJAVal* request) {
 
    int r=WebRequest("POST", url, "Content-Type: application/json\r\n", 5000, data, res_data, res_headers);
    if (r > 399) {
-      //PrintFormat("Error calling SDK (status=%d) %s",r, CharArrayToString(res_data));
+      Print("SDK offline");
+      Sleep(5000);
    }
-   Print(r);
 
    CJAVal response;
    string res_string=CharArrayToString(res_data,0,ArraySize(res_data),CP_UTF8);

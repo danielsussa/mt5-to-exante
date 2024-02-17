@@ -230,16 +230,16 @@ func (a *Api) Sync(accountID string, req SyncRequest) (SyncResponse, error) {
 
 			}
 
-			//if len(exanteOrders) == 0 {
-			//	continue
-			//}
+			// add this clause to avoid opening a order on exante without the previews order from position
+			_, hasParentOrder := utils.GetParentOrder(exanteOrders)
+			if hasParentOrder {
+				_, err = a.closePosition(accountID, originatedMT5Order)
+				if err != nil {
+					return res, err
+				}
 
-			_, err = a.closePosition(accountID, originatedMT5Order)
-			if err != nil {
-				return res, err
+				res.AddJournal(fmt.Sprintf("[%s] POS(HIST) > ENTRY_OUT > CANCEL", currentMT5OldPosition.PositionTicket))
 			}
-
-			res.AddJournal(fmt.Sprintf("[%s] POS(HIST) > ENTRY_OUT > CANCEL", currentMT5OldPosition.PositionTicket))
 
 		}
 

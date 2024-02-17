@@ -610,6 +610,25 @@ func TestApi(t *testing.T) {
 			assert.Len(t, activeOrder, 1)
 			assert.Equal(t, 1, exanteMock.TotalPlaceOrderV3)
 		}
+	})
 
+	t.Run("has a open position on MT5 but doesn't have on exante, shouldn't do anything on EXANTE", func(t *testing.T) {
+		exanteMock := exante.NewMock([]exante.OrderV3{})
+		c := New(exanteMock, exchange)
+		{ // should not add another order on exante
+			_, err := c.Sync("acc-1", SyncRequest{
+				RecentInactivePositions: []Mt5PositionHistory{
+					{PositionTicket: "1234", Ticket: "1234", Symbol: "EURUSD", Volume: 1, TakeProfit: 2, StopLoss: 1, Price: 1.2, Entry: DealEntryOut},
+				},
+				RecentInactiveOrders: []Mt5Order{
+					{Symbol: "EURUSD", Ticket: "1234", Volume: 1, Type: OrderTypeSell, StopLoss: 1, Price: 1.2, State: OrderStateFilled},
+				},
+			})
+			assert.NoError(t, err)
+			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
+			assert.Len(t, activeOrder, 0)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			assert.Len(t, allOrders, 0)
+		}
 	})
 }

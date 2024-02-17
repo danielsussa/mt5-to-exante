@@ -1,2 +1,9 @@
 .idea
-*.env
+dev.env
+prod.env
+bin
+.tmp
+vendor
+.db
+*.exe
+.idea_old

@@ -296,7 +296,7 @@ func (a Api) GetActiveOrdersV3() (OrdersV3, error) {
 	return result, nil
 }
 
-func (a Api) GetOrdersByLimitV3(limit int) (OrdersV3, error) {
+func (a Api) GetOrdersByLimitV3(limit int, accountID string) (OrdersV3, error) {
 
 	var result OrdersV3
 	var errRes []ErrorResponse
@@ -305,6 +305,7 @@ func (a Api) GetOrdersByLimitV3(limit int) (OrdersV3, error) {
 		SetResult(&result).
 		SetError(&errRes).
 		SetQueryParam("limit", fmt.Sprintf("%d", limit)).
+		SetQueryParam("accountId", accountID).
 		SetHeader("Authorization", a.Bearer()).
 		Get(fmt.Sprintf("%s/trade/3.0/orders", a.BaseURL))
 

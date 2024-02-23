@@ -16,11 +16,13 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+var Hash string
+
 func main() {
 	ex, _ := os.Executable()
 	exPath := filepath.Dir(ex)
 
-	fmt.Println("version: ff45e38f7754fc9fb152125ec7d2328dbb988158b")
+	fmt.Println(fmt.Sprintf("version: %s", Hash))
 
 	err := godotenv.Load(fmt.Sprintf("%s/%s.env", exPath, os.Args[1]))
 	if err != nil {
@@ -63,6 +65,7 @@ func main() {
 
 	e.GET("/jwt", h.getJwt)
 	e.GET("/accounts", h.getAccounts)
+	e.GET("/orders", h.getOrders)
 	e.POST("/sync", h.sync)
 	e.POST("/journal", h.journal)
 	e.Logger.Fatal(e.Start(":1323"))
@@ -388,7 +391,7 @@ func (a api) getOrder(c echo.Context) error {
 }
 
 func (a api) getOrders(c echo.Context) error {
-	orders, err := a.exApi.GetActiveOrdersV3()
+	orders, err := a.exApi.GetOrdersByLimitV3(5, a.accountID)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, echo.Map{
 			"error": err.Error(),

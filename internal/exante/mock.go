@@ -5,7 +5,7 @@ type ApiMock struct {
 	GetOrderFunc           func(orderID string) (*OrderV3, error)
 	PlaceOrderV3Func       func(req *OrderSentTypeV3) ([]OrderV3, error)
 	ReplaceOrderFunc       func(orderID string, req ReplaceOrderPayload) (*OrderV3, error)
-	GetOrdersByLimitV3Func func(limit int) ([]OrderV3, error)
+	GetOrdersByLimitV3Func func(limit int, accountID string) ([]OrderV3, error)
 	GetActiveOrdersV3Func  func() (OrdersV3, error)
 	TotalCalls             int
 	TotalPlaceOrderV3      int
@@ -16,8 +16,8 @@ func (a *ApiMock) GetActiveOrdersV3() (OrdersV3, error) {
 	return a.GetActiveOrdersV3Func()
 }
 
-func (a *ApiMock) GetOrdersByLimitV3(limit int) (OrdersV3, error) {
-	return a.GetOrdersByLimitV3Func(limit)
+func (a *ApiMock) GetOrdersByLimitV3(limit int, accountID string) (OrdersV3, error) {
+	return a.GetOrdersByLimitV3Func(limit, accountID)
 }
 
 func (a *ApiMock) ReplaceOrder(orderID string, req ReplaceOrderPayload) (*OrderV3, error) {

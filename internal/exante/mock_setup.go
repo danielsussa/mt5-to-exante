@@ -32,6 +32,7 @@ func NewMock(ordersList []OrderV3) *ApiMock {
 			}
 			if len(req.LimitPrice) > 0 {
 				orders = append(orders, OrderV3{
+					AccountID: req.AccountID,
 					OrderState: OrderState{
 						Status: convertTypeToStatus(req.OrderType),
 					},
@@ -55,6 +56,7 @@ func NewMock(ordersList []OrderV3) *ApiMock {
 
 			if req.TakeProfit != nil {
 				orders = append(orders, OrderV3{
+					AccountID: req.AccountID,
 					OrderState: OrderState{
 						Status: PendingStatus,
 					},
@@ -70,6 +72,7 @@ func NewMock(ordersList []OrderV3) *ApiMock {
 			}
 			if req.StopLoss != nil {
 				orders = append(orders, OrderV3{
+					AccountID: req.AccountID,
 					OrderState: OrderState{
 						Status: PendingStatus,
 					},
@@ -87,6 +90,7 @@ func NewMock(ordersList []OrderV3) *ApiMock {
 
 			if req.StopPrice != nil {
 				orders = append(orders, OrderV3{
+					AccountID: req.AccountID,
 					OrderState: OrderState{
 						Status: PendingStatus,
 					},
@@ -117,8 +121,14 @@ func NewMock(ordersList []OrderV3) *ApiMock {
 			}
 			return nil, fmt.Errorf("no order to replace")
 		},
-		GetOrdersByLimitV3Func: func(limit int) ([]OrderV3, error) {
-			return ordersList, nil
+		GetOrdersByLimitV3Func: func(limit int, accountID string) ([]OrderV3, error) {
+			newList := make([]OrderV3, 0)
+			for _, order := range ordersList {
+				if order.AccountID == accountID {
+					newList = append(newList, order)
+				}
+			}
+			return newList, nil
 		},
 		GetActiveOrdersV3Func: func() (OrdersV3, error) {
 			newList := make([]OrderV3, 0)

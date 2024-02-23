@@ -44,7 +44,7 @@ func TestApi(t *testing.T) {
 			assert.NoError(t, err)
 			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
 			assert.Len(t, activeOrder, 2)
-			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100, "acc-1")
 			assert.Len(t, allOrders, 3)
 		}
 		{ // lets repeat the same action to check if nothing is deduplicated
@@ -63,7 +63,7 @@ func TestApi(t *testing.T) {
 			assert.NoError(t, err)
 			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
 			assert.Len(t, activeOrder, 2)
-			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100, "acc-1")
 			assert.Len(t, allOrders, 3)
 			assert.Equal(t, 1, exanteMock.TotalPlaceOrderV3)
 		}
@@ -78,7 +78,7 @@ func TestApi(t *testing.T) {
 			assert.NoError(t, err)
 			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
 			assert.Len(t, activeOrder, 2)
-			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100, "acc-1")
 			assert.Len(t, allOrders, 3)
 		}
 		{ // lets change the stop loss value to 1.1 and 2.1
@@ -92,7 +92,7 @@ func TestApi(t *testing.T) {
 			assert.NoError(t, err)
 			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
 			assert.Len(t, activeOrder, 2)
-			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100, "acc-1")
 			assert.Len(t, allOrders, 3)
 			slOrder, _ := utils.GetStopLossOrder(allOrders)
 			assert.Equal(t, "1.1", slOrder.OrderParameters.StopPrice)
@@ -116,7 +116,7 @@ func TestApi(t *testing.T) {
 			assert.NoError(t, err)
 			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
 			assert.Len(t, activeOrder, 2)
-			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100, "acc-1")
 			assert.Len(t, allOrders, 2)
 		}
 		{ // add stop loss
@@ -129,7 +129,7 @@ func TestApi(t *testing.T) {
 			assert.NoError(t, err)
 			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
 			assert.Len(t, activeOrder, 3)
-			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100, "acc-1")
 			assert.Len(t, allOrders, 3)
 		}
 		{ // remove take profit
@@ -142,7 +142,7 @@ func TestApi(t *testing.T) {
 			assert.NoError(t, err)
 			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
 			assert.Len(t, activeOrder, 2)
-			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100, "acc-1")
 			assert.Len(t, allOrders, 3)
 		}
 		{ // cancel order
@@ -156,7 +156,7 @@ func TestApi(t *testing.T) {
 			assert.NoError(t, err)
 			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
 			assert.Len(t, activeOrder, 0)
-			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100, "acc-1")
 			assert.Len(t, allOrders, 3)
 		}
 	})
@@ -176,7 +176,7 @@ func TestApi(t *testing.T) {
 			assert.NoError(t, err)
 			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
 			assert.Len(t, activeOrder, 1)
-			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100, "acc-1")
 			assert.Len(t, allOrders, 1)
 			assert.Equal(t, "1.2", activeOrder[0].OrderParameters.LimitPrice)
 		}
@@ -190,7 +190,7 @@ func TestApi(t *testing.T) {
 			assert.NoError(t, err)
 			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
 			assert.Len(t, activeOrder, 1)
-			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100, "acc-1")
 			assert.Len(t, allOrders, 1)
 			assert.Equal(t, "1.1", activeOrder[0].OrderParameters.LimitPrice)
 		}
@@ -211,7 +211,7 @@ func TestApi(t *testing.T) {
 			assert.NoError(t, err)
 			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
 			assert.Len(t, activeOrder, 2)
-			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100, "acc-1")
 			assert.Len(t, allOrders, 2)
 		}
 		{ // order become a position
@@ -234,6 +234,7 @@ func TestApi(t *testing.T) {
 	t.Run("has already a recent position on MT5 and a position on EXANTE", func(t *testing.T) {
 		exanteMock := exante.NewMock([]exante.OrderV3{
 			{
+				AccountID: "acc-1",
 				OrderState: exante.OrderState{
 					Status: exante.FilledStatus,
 				},
@@ -254,7 +255,7 @@ func TestApi(t *testing.T) {
 			assert.NoError(t, err)
 			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
 			assert.Len(t, activeOrder, 0)
-			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100, "acc-1")
 			assert.Len(t, allOrders, 1)
 		}
 	})
@@ -263,6 +264,7 @@ func TestApi(t *testing.T) {
 		parentOrderId := uuid.NewString()
 		exanteMock := exante.NewMock([]exante.OrderV3{
 			{
+				AccountID: "acc-1",
 				OrderState: exante.OrderState{
 					Status: exante.FilledStatus,
 				},
@@ -270,6 +272,7 @@ func TestApi(t *testing.T) {
 				ClientTag: "1234",
 			},
 			{
+				AccountID: "acc-1",
 				OrderState: exante.OrderState{
 					Status: exante.WorkingStatus,
 				},
@@ -292,7 +295,7 @@ func TestApi(t *testing.T) {
 			assert.NoError(t, err)
 			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
 			assert.Len(t, activeOrder, 1)
-			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100, "acc-1")
 			assert.Len(t, allOrders, 2)
 			assert.Equal(t, 0, exanteMock.TotalPlaceOrderV3)
 		}
@@ -309,7 +312,7 @@ func TestApi(t *testing.T) {
 			assert.NoError(t, err)
 			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
 			assert.Len(t, activeOrder, 1)
-			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100, "acc-1")
 			assert.Len(t, allOrders, 2)
 			assert.Equal(t, 0, exanteMock.TotalPlaceOrderV3)
 		}
@@ -319,6 +322,7 @@ func TestApi(t *testing.T) {
 		parentOrderId := uuid.NewString()
 		exanteOrders := []exante.OrderV3{
 			{
+				AccountID: "acc-1",
 				OrderState: exante.OrderState{
 					Status: exante.FilledStatus,
 				},
@@ -326,6 +330,7 @@ func TestApi(t *testing.T) {
 				ClientTag: "1234",
 			},
 			{
+				AccountID: "acc-1",
 				OrderState: exante.OrderState{
 					Status: exante.FilledStatus,
 				},
@@ -351,7 +356,7 @@ func TestApi(t *testing.T) {
 			assert.NoError(t, err)
 			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
 			assert.Len(t, activeOrder, 0)
-			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100, "acc-1")
 			assert.Len(t, allOrders, 2)
 			assert.Equal(t, 0, exanteMock.TotalPlaceOrderV3)
 		}
@@ -361,6 +366,7 @@ func TestApi(t *testing.T) {
 		parentOrderId := uuid.NewString()
 		exanteMock := exante.NewMock([]exante.OrderV3{
 			{
+				AccountID: "acc-1",
 				OrderState: exante.OrderState{
 					Status: exante.FilledStatus,
 				},
@@ -368,6 +374,7 @@ func TestApi(t *testing.T) {
 				ClientTag: "1234",
 			},
 			{
+				AccountID: "acc-1",
 				OrderState: exante.OrderState{
 					Status: exante.WorkingStatus,
 				},
@@ -391,7 +398,7 @@ func TestApi(t *testing.T) {
 			assert.NoError(t, err)
 			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
 			assert.Len(t, activeOrder, 1)
-			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100, "acc-1")
 			assert.Len(t, allOrders, 2)
 		}
 	})
@@ -400,6 +407,7 @@ func TestApi(t *testing.T) {
 		parentOrderId := uuid.NewString()
 		exanteMock := exante.NewMock([]exante.OrderV3{
 			{
+				AccountID: "acc-1",
 				OrderState: exante.OrderState{
 					Status: exante.FilledStatus,
 				},
@@ -410,6 +418,7 @@ func TestApi(t *testing.T) {
 				ClientTag: "1234",
 			},
 			{
+				AccountID: "acc-1",
 				OrderState: exante.OrderState{
 					Status: exante.WorkingStatus,
 				},
@@ -437,7 +446,7 @@ func TestApi(t *testing.T) {
 			assert.NoError(t, err)
 			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
 			assert.Len(t, activeOrder, 0)
-			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100, "acc-1")
 			assert.Len(t, allOrders, 3)
 			assert.True(t, utils.IsPositionClosed(allOrders))
 		}
@@ -588,6 +597,7 @@ func TestApi(t *testing.T) {
 	t.Run("has open position without STOP, add TP, should not duplicate requests", func(t *testing.T) {
 		exanteMock := exante.NewMock([]exante.OrderV3{
 			{
+				AccountID: "acc-1",
 				OrderState: exante.OrderState{
 					Status: exante.FilledStatus,
 				},
@@ -627,7 +637,7 @@ func TestApi(t *testing.T) {
 			assert.NoError(t, err)
 			activeOrder, _ := c.exanteApi.GetActiveOrdersV3()
 			assert.Len(t, activeOrder, 0)
-			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100)
+			allOrders, _ := c.exanteApi.GetOrdersByLimitV3(100, "acc-1")
 			assert.Len(t, allOrders, 0)
 		}
 	})

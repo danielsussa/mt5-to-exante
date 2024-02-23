@@ -180,7 +180,7 @@ func (a *Api) Sync(accountID string, req SyncRequest) (SyncResponse, error) {
 
 		// deal entry IN with market order
 		if currentMT5OldPosition.Entry == DealEntryIn {
-			exanteFilledOrders, err := a.findFilledOrdersByTicket(currentMT5OldPosition.PositionTicket)
+			exanteFilledOrders, err := a.findFilledOrdersByTicket(currentMT5OldPosition.PositionTicket, accountID)
 			if err != nil {
 				return res, err
 			}
@@ -198,7 +198,7 @@ func (a *Api) Sync(accountID string, req SyncRequest) (SyncResponse, error) {
 
 		// deal entry OUT with market order
 		if currentMT5OldPosition.Entry == DealEntryOut && !currentMT5OldPosition.Reason.IsStop() {
-			exanteClosingOrders, err := a.findActiveAndFilledOrdersByTicket(currentMT5OldPosition.Ticket)
+			exanteClosingOrders, err := a.findActiveAndFilledOrdersByTicket(currentMT5OldPosition.Ticket, accountID)
 			if err != nil {
 				return res, err
 			}
@@ -207,7 +207,7 @@ func (a *Api) Sync(accountID string, req SyncRequest) (SyncResponse, error) {
 				continue
 			}
 
-			exanteOrders, err := a.findActiveAndFilledOrdersByTicket(currentMT5OldPosition.PositionTicket)
+			exanteOrders, err := a.findActiveAndFilledOrdersByTicket(currentMT5OldPosition.PositionTicket, accountID)
 			if err != nil {
 				return res, err
 			}
@@ -254,7 +254,7 @@ func (a *Api) Sync(accountID string, req SyncRequest) (SyncResponse, error) {
 			continue
 		}
 
-		exanteOrders, err := a.findActiveAndFilledOrdersByTicket(currentMT5Position.PositionTicket)
+		exanteOrders, err := a.findActiveAndFilledOrdersByTicket(currentMT5Position.PositionTicket, accountID)
 		if err != nil {
 			return res, err
 		}
@@ -332,7 +332,7 @@ func (a *Api) Sync(accountID string, req SyncRequest) (SyncResponse, error) {
 			continue
 		}
 
-		exanteActiveOrders, err := a.findActiveOrdersByTicket(currentMT5Order.Ticket)
+		exanteActiveOrders, err := a.findActiveOrdersByTicket(currentMT5Order.Ticket, accountID)
 		if err != nil {
 			return res, err
 		}
@@ -427,7 +427,7 @@ func (a *Api) Sync(accountID string, req SyncRequest) (SyncResponse, error) {
 			continue
 		}
 
-		exanteActiveOrders, err := a.findActiveOrdersByTicket(currentMT5InactiveOrder.Ticket)
+		exanteActiveOrders, err := a.findActiveOrdersByTicket(currentMT5InactiveOrder.Ticket, accountID)
 		if err != nil {
 			return res, err
 		}
@@ -467,8 +467,8 @@ func hasInactiveFilledOrder(ticket string) func(order Mt5Order) bool {
 	}
 }
 
-func (a *Api) replaceUpdatePositionHistory(history Mt5Position) error {
-	orders, err := a.findActiveAndFilledOrdersByTicket(history.Ticket)
+func (a *Api) replaceUpdatePositionHistory(history Mt5Position, accountID string) error {
+	orders, err := a.findActiveAndFilledOrdersByTicket(history.Ticket, accountID)
 	if err != nil {
 		return err
 	}
@@ -673,8 +673,8 @@ func (a *Api) replaceMainOrder(mt5Order Mt5Order, exanteOrder exante.OrderV3) er
 	return nil
 }
 
-func (a *Api) findActiveOrdersByTicket(ticket string) ([]exante.OrderV3, error) {
-	orders, err := a.exanteApi.GetOrdersByLimitV3(100)
+func (a *Api) findActiveOrdersByTicket(ticket string, accountID string) ([]exante.OrderV3, error) {
+	orders, err := a.exanteApi.GetOrdersByLimitV3(100, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -689,8 +689,8 @@ func (a *Api) findActiveOrdersByTicket(ticket string) ([]exante.OrderV3, error) 
 	return returnOrders, nil
 }
 
-func (a *Api) findActiveAndFilledOrdersByTicket(ticket string) ([]exante.OrderV3, error) {
-	orders, err := a.exanteApi.GetOrdersByLimitV3(100)
+func (a *Api) findActiveAndFilledOrdersByTicket(ticket string, accountID string) ([]exante.OrderV3, error) {
+	orders, err := a.exanteApi.GetOrdersByLimitV3(100, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -705,8 +705,8 @@ func (a *Api) findActiveAndFilledOrdersByTicket(ticket string) ([]exante.OrderV3
 	return returnOrders, nil
 }
 
-func (a *Api) findFilledOrdersByTicket(ticket string) ([]exante.OrderV3, error) {
-	orders, err := a.exanteApi.GetOrdersByLimitV3(100)
+func (a *Api) findFilledOrdersByTicket(ticket string, accountID string) ([]exante.OrderV3, error) {
+	orders, err := a.exanteApi.GetOrdersByLimitV3(100, accountID)
 	if err != nil {
 		return nil, err
 	}

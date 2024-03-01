@@ -5,7 +5,6 @@ import (
 	"github.com/danielsussa/mt5-to-exante/internal/exante"
 	"github.com/danielsussa/mt5-to-exante/internal/exchanges"
 	"github.com/danielsussa/mt5-to-exante/internal/utils"
-	"slices"
 	"strings"
 	"time"
 )
@@ -158,286 +157,35 @@ func (t OrderType) IsLimit() bool {
 func (a *Api) Sync(accountID string, req SyncRequest) (SyncResponse, error) {
 	res := SyncResponse{}
 
-	// recent position history are responsible for
-	// 1. open a position only if its come from a MARKET order
-	// 2. close a position only if its come from a MARKET order
-	for _, currentMT5OldPosition := range req.RecentInactivePositions {
-		if !a.isNewRequest(currentMT5OldPosition) {
-			continue
-		}
-
-		orderIdx := slices.IndexFunc(req.RecentInactiveOrders, func(order Mt5Order) bool {
-			return order.Ticket == currentMT5OldPosition.Ticket
-		})
-		if orderIdx == -1 {
-			continue
-		}
-		originatedMT5Order := req.RecentInactiveOrders[orderIdx]
-		if originatedMT5Order.Type.IsLimit() {
-			a.appendRequest(currentMT5OldPosition)
-			continue
-		}
-
-		// deal entry IN with market order
-		if currentMT5OldPosition.Entry == DealEntryIn {
-			exanteFilledOrders, err := a.findFilledOrdersByTicket(currentMT5OldPosition.PositionTicket, accountID)
-			if err != nil {
-				return res, err
-			}
-			if len(exanteFilledOrders) > 0 {
-				a.appendRequest(currentMT5OldPosition)
-				continue
-			}
-
-			_, err = a.placeNewOrder(accountID, originatedMT5Order)
-			if err != nil {
-				return res, err
-			}
-			res.AddJournal(fmt.Sprintf("[%s] POS(HIST) > ENTRY_IN > PLACE", currentMT5OldPosition.PositionTicket))
-		}
-
-		// deal entry OUT with market order
-		if currentMT5OldPosition.Entry == DealEntryOut && !currentMT5OldPosition.Reason.IsStop() {
-			exanteClosingOrders, err := a.findActiveAndFilledOrdersByTicket(currentMT5OldPosition.Ticket, accountID)
-			if err != nil {
-				return res, err
-			}
-			if len(exanteClosingOrders) > 0 {
-				a.appendRequest(currentMT5OldPosition)
-				continue
-			}
-
-			exanteOrders, err := a.findActiveAndFilledOrdersByTicket(currentMT5OldPosition.PositionTicket, accountID)
-			if err != nil {
-				return res, err
-			}
-
-			tpOrder, hasTpOrder := utils.GetTakeProfitOrder(exanteOrders)
-			if hasTpOrder {
-				err = a.cancelOrder(tpOrder.OrderID)
-				if err != nil {
-					return res, err
-				}
-				res.AddJournal(fmt.Sprintf("[%s] POS(HIST) > ENTRY_OUT > CANCEL TP", currentMT5OldPosition.PositionTicket))
-			}
-			slOrder, hasSLOrder := utils.GetStopLossOrder(exanteOrders)
-			if hasSLOrder {
-				err = a.cancelOrder(slOrder.OrderID)
-				if err != nil {
-					return res, err
-				}
-				res.AddJournal(fmt.Sprintf("[%s] POS(HIST) > ENTRY_OUT > CANCEL SL", currentMT5OldPosition.PositionTicket))
-
-			}
-
-			// add this clause to avoid opening a order on exante without the previews order from position
-			_, hasParentOrder := utils.GetParentOrder(exanteOrders)
-			if hasParentOrder {
-				_, err = a.closePosition(accountID, originatedMT5Order)
-				if err != nil {
-					return res, err
-				}
-
-				res.AddJournal(fmt.Sprintf("[%s] POS(HIST) > ENTRY_OUT > CANCEL", currentMT5OldPosition.PositionTicket))
-			}
-
-		}
-
-		a.appendRequest(currentMT5OldPosition)
-	}
-
-	// active positions are responsible for
-	// 1. change TP/SL of a current position
-	// 2. create TP/SL for a current position
-	for _, currentMT5Position := range req.ActivePositions {
-		if !a.isNewRequest(currentMT5Position) {
-			continue
-		}
-
-		exanteOrders, err := a.findActiveAndFilledOrdersByTicket(currentMT5Position.PositionTicket, accountID)
-		if err != nil {
-			return res, err
-		}
-		exanteParentOrder, hasParentOrder := utils.GetParentOrder(exanteOrders)
-
-		if !hasParentOrder {
-			continue
-		}
-
-		ocoGroup := utils.GetOCOGroup(exanteOrders)
-
-		{
-			slOrder, hasSlOrder := utils.GetStopLossOrder(exanteOrders)
-
-			// Stop Loss change
-			if !hasSlOrder && currentMT5Position.StopLoss > 0 {
-				// has to add order
-				_, err = a.placeStopLoss(currentMT5Position.StopLoss, *exanteParentOrder, ocoGroup)
-				if err != nil {
-					return res, err
-				}
-				res.AddJournal(fmt.Sprintf("[%s] POS(ACTIVE) > PLACE SL", currentMT5Position.PositionTicket))
-			} else if hasSlOrder && currentMT5Position.StopLoss == 0 {
-				// has to remove take profit
-				err = a.cancelOrder(slOrder.OrderID)
-				if err != nil {
-					return res, err
-				}
-				res.AddJournal(fmt.Sprintf("[%s] POS(ACTIVE) > CANCEL SL", currentMT5Position.PositionTicket))
-			} else if hasSlOrder && slOrder.OrderParameters.StopPrice != utils.ConvertNDecimals(currentMT5Position.StopLoss) {
-				err = a.replaceSLOrder(currentMT5Position.StopLoss, slOrder.OrderID)
-				if err != nil {
-					return res, err
-				}
-				res.AddJournal(fmt.Sprintf("[%s] POS(ACTIVE) > REPLACE SL", currentMT5Position.PositionTicket))
-			}
-		}
-
-		{
-			tpOrder, hasTpOrder := utils.GetTakeProfitOrder(exanteOrders)
-
-			// Take Profit change
-			if !hasTpOrder && currentMT5Position.TakeProfit > 0 {
-				// has to add order
-				_, err = a.placeTakeProfit(currentMT5Position.TakeProfit, *exanteParentOrder, ocoGroup)
-				if err != nil {
-					return res, err
-				}
-				res.AddJournal(fmt.Sprintf("[%s] POS(ACTIVE) > PLACE TP", currentMT5Position.PositionTicket))
-			} else if hasTpOrder && currentMT5Position.TakeProfit == 0 {
-				// has to remove take profit
-				err = a.cancelOrder(tpOrder.OrderID)
-				if err != nil {
-					return res, err
-				}
-				res.AddJournal(fmt.Sprintf("[%s] POS(ACTIVE) > CANCEL TP", currentMT5Position.PositionTicket))
-			} else if hasTpOrder && tpOrder.OrderParameters.LimitPrice != utils.ConvertNDecimals(currentMT5Position.TakeProfit) {
-				err = a.replaceTPOrder(currentMT5Position.TakeProfit, tpOrder.OrderID)
-				if err != nil {
-					return res, err
-				}
-				res.AddJournal(fmt.Sprintf("[%s] POS(ACTIVE) > REPLACE TP", currentMT5Position.PositionTicket))
-			}
-		}
-
-		a.appendRequest(currentMT5Position)
-	}
-
-	// active orders are responsible for:
-	// 1. open an order if doesn't exist
-	// 2. change TP/SL of a current order
-	// 3. replace order's price
-	for _, currentMT5Order := range req.ActiveOrders {
-		if !a.isNewRequest(currentMT5Order) {
-			continue
-		}
-
-		exanteActiveOrders, err := a.findActiveOrdersByTicket(currentMT5Order.Ticket, accountID)
-		if err != nil {
-			return res, err
-		}
-
-		if len(exanteActiveOrders) == 0 {
-			_, err := a.placeNewOrder(accountID, currentMT5Order)
-			if err != nil {
-				return res, err
-			}
-			res.AddJournal(fmt.Sprintf("[%s] ORD(ACTIVE) > PLACE ORDER", currentMT5Order.Ticket))
-			a.appendRequest(currentMT5Order)
-			continue
-		}
-
-		ocoGroup := utils.GetOCOGroup(exanteActiveOrders)
-		exanteParentOrder, hasParentOrder := utils.GetParentOrder(exanteActiveOrders)
-		if !hasParentOrder {
-			continue
-		}
-
-		{
-			if exanteParentOrder.OrderParameters.LimitPrice != utils.ConvertNDecimals(currentMT5Order.Price) {
-				err = a.replaceTPOrder(currentMT5Order.Price, exanteParentOrder.OrderID)
-				if err != nil {
-					return res, err
-				}
-				res.AddJournal(fmt.Sprintf("[%s] ORD(ACTIVE) > REPLACE ORDER PRICE", currentMT5Order.Ticket))
-			}
-		}
-
-		{
-			tpOrder, hasTpOrder := utils.GetTakeProfitOrder(exanteActiveOrders)
-
-			// Take profit change
-			if !hasTpOrder && currentMT5Order.TakeProfit > 0 {
-				// has to add order
-				_, err = a.placeTakeProfit(currentMT5Order.TakeProfit, *exanteParentOrder, ocoGroup)
-				if err != nil {
-					return res, err
-				}
-				res.AddJournal(fmt.Sprintf("[%s] ORD(ACTIVE) > PLACE TP", currentMT5Order.Ticket))
-			} else if hasTpOrder && currentMT5Order.TakeProfit == 0 {
-				// has to remove take profit
-				err = a.cancelOrder(tpOrder.OrderID)
-				if err != nil {
-					return res, err
-				}
-				res.AddJournal(fmt.Sprintf("[%s] ORD(ACTIVE) > CANCEL TP", currentMT5Order.Ticket))
-			} else if hasTpOrder && tpOrder.OrderParameters.LimitPrice != utils.ConvertNDecimals(currentMT5Order.TakeProfit) {
-				err = a.replaceTPOrder(currentMT5Order.TakeProfit, tpOrder.OrderID)
-				if err != nil {
-					return res, err
-				}
-				res.AddJournal(fmt.Sprintf("[%s] ORD(ACTIVE) > REPLACE TP", currentMT5Order.Ticket))
-			}
-		}
-
-		{
-			slOrder, hasSlOrder := utils.GetStopLossOrder(exanteActiveOrders)
-
-			// Stop Loss change
-			if !hasSlOrder && currentMT5Order.StopLoss > 0 {
-				// has to add order
-				_, err = a.placeStopLoss(currentMT5Order.StopLoss, *exanteParentOrder, ocoGroup)
-				if err != nil {
-					return res, err
-				}
-				res.AddJournal(fmt.Sprintf("[%s] ORD(ACTIVE) > PLACE SL", currentMT5Order.Ticket))
-			} else if hasSlOrder && currentMT5Order.StopLoss == 0 {
-				// has to remove take profit
-				err = a.cancelOrder(slOrder.OrderID)
-				if err != nil {
-					return res, err
-				}
-				res.AddJournal(fmt.Sprintf("[%s] ORD(ACTIVE) > CANCEL SL", currentMT5Order.Ticket))
-			} else if hasSlOrder && slOrder.OrderParameters.LimitPrice != utils.ConvertNDecimals(currentMT5Order.StopLoss) {
-				err = a.replaceSLOrder(currentMT5Order.StopLoss, slOrder.OrderID)
-				if err != nil {
-					return res, err
-				}
-				res.AddJournal(fmt.Sprintf("[%s] ORD(ACTIVE) > REPLACE SL", currentMT5Order.Ticket))
-			}
-		}
-
-		a.appendRequest(currentMT5Order)
-	}
-
 	// recent inactive orders are responsible for:
 	// 1. Cancel an order
+	// 1. Open market order
 	for _, currentMT5InactiveOrder := range req.RecentInactiveOrders {
 		if !a.isNewRequest(currentMT5InactiveOrder) {
 			continue
 		}
 
-		exanteActiveOrders, err := a.findActiveOrdersByTicket(currentMT5InactiveOrder.Ticket, accountID)
-		if err != nil {
-			return res, err
-		}
-		exanteParentOrder, hasParentOrder := utils.GetParentOrder(exanteActiveOrders)
-		if !hasParentOrder {
-			continue
+		// Open market order
+		if currentMT5InactiveOrder.State == OrderStateFilled {
+			_, err := a.placeNewOrder(accountID, currentMT5InactiveOrder)
+			if err != nil {
+				return res, err
+			}
+			res.AddJournal(fmt.Sprintf("[%s] ORDER(HIST) > MKT ORDER", currentMT5InactiveOrder.Ticket))
 		}
 
+		// Cancel an order
 		if currentMT5InactiveOrder.State == OrderStateCancelled {
-			err := a.cancelOrder(exanteParentOrder.OrderID)
+			exanteActiveOrders, err := a.findActiveOrdersByTicket(currentMT5InactiveOrder.Ticket, accountID)
+			if err != nil {
+				return res, err
+			}
+			exanteParentOrder, hasParentOrder := utils.GetParentOrder(exanteActiveOrders)
+			if !hasParentOrder {
+				continue
+			}
+
+			err = a.cancelOrder(exanteParentOrder.OrderID)
 			if err != nil {
 				return res, err
 			}
@@ -515,13 +263,11 @@ func (a *Api) placeNewOrder(accountID string, order Mt5Order) ([]exante.OrderV3,
 	orders, err := a.exanteApi.PlaceOrderV3(&exante.OrderSentTypeV3{
 		SymbolID:   exchange.Exante,
 		Duration:   "good_till_cancel",
-		OrderType:  convertOrderType(order.Type),
+		OrderType:  "market",
 		Quantity:   utils.Convert5Decimals(order.Volume * exchange.PriceStep),
 		Side:       convertOrderSide(order.Type),
 		LimitPrice: utils.ConvertNDecimals(order.Price),
 		Instrument: exchange.Exante,
-		StopLoss:   utils.ConvertNDecimalsOrNil(order.StopLoss),
-		TakeProfit: utils.ConvertNDecimalsOrNil(order.TakeProfit),
 		ClientTag:  order.Ticket,
 		AccountID:  accountID,
 	})
@@ -674,7 +420,7 @@ func (a *Api) replaceMainOrder(mt5Order Mt5Order, exanteOrder exante.OrderV3) er
 }
 
 func (a *Api) findActiveOrdersByTicket(ticket string, accountID string) ([]exante.OrderV3, error) {
-	orders, err := a.exanteApi.GetOrdersByLimitV3(100, accountID)
+	orders, err := a.exanteApi.GetOrdersByLimitV3(1000, accountID)
 	if err != nil {
 		return nil, err
 	}
